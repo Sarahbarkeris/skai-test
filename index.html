@@ -944,7 +944,7 @@
         <!-- TAB: PRICING -->
         <div id="ws-panel-pricing" style="display:none;">
           <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
-            <textarea id="paste-spec" style="display:none;"></textarea>
+            <textarea id="paste-spec-ws" style="display:none;"></textarea>
             <button onclick="openWSPricingUpload()" class="btn btn-ghost btn-sm">📎 Upload Product List</button>
             <button onclick="showWSPasteArea()" class="btn btn-ghost btn-sm">📋 Paste Products</button>
             <button id="ws-run-match-btn" onclick="runSmartMatch()" style="display:none;background:linear-gradient(135deg,#10b981,#059669);color:white;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;">✦ Match Products</button>
@@ -1038,19 +1038,23 @@
     <div class="card">
       <div class="card-title">📥 Import Product List</div>
       <div style="display:flex;flex-direction:column;gap:8px;">
-        <div class="upload-zone" style="padding:16px;" onclick="document.getElementById('price-file-input').click()">
-          <input type="file" id="price-file-input" accept=".csv,.txt,.xlsx" style="display:none" onchange="handlePriceFileUpload(this)">
-          <div style="display:flex;align-items:center;gap:10px;">
-            <span style="font-size:22px;">📊</span>
-            <div>
-              <div style="font-size:12px;font-weight:600;">Upload CSV, Excel or text file</div>
-              <div class="text-muted">Any format — AI will interpret it</div>
+        <label style="cursor:pointer;">
+          <div id="price-upload-zone" class="upload-zone" style="padding:16px;transition:all 0.2s;"
+            onmouseover="this.style.borderColor='rgba(16,185,129,0.6)'"
+            onmouseout="this.style.borderColor=''">
+            <input type="file" id="price-file-input" accept=".csv,.txt,.xlsx" style="display:none" onchange="handlePriceFileUpload(this)">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:22px;" id="price-upload-icon">📊</span>
+              <div>
+                <div style="font-size:12px;font-weight:600;" id="price-upload-label">Upload CSV, Excel or text file</div>
+                <div class="text-muted" id="price-upload-sub">Click to choose — SKAI matches everything automatically</div>
+              </div>
             </div>
           </div>
-        </div>
-        <div style="text-align:center;font-size:11px;color:var(--muted);">— or —</div>
-        <textarea id="paste-spec" style="height:70px;resize:none;font-size:12px;" placeholder="Paste anything here — a schedule of rates, spec list, email, product codes, descriptions...&#10;e.g. Hi-vis jacket Class 2 x50, Safety boots S3 x30, FR coverall EN11612 x20"></textarea>
-        <button class="btn btn-primary btn-sm" onclick="runSmartMatch()">✦ Smart Match</button>
+        </label>
+        <div style="text-align:center;font-size:11px;color:var(--muted);">— or paste below —</div>
+        <textarea id="paste-spec" style="height:70px;resize:none;font-size:12px;" placeholder="Paste anything — a schedule of rates, spec list, email, product codes...&#10;e.g. Hi-vis jacket Class 2 x50, Safety boots S3 x30, FR coverall EN11612 x20"></textarea>
+        <button class="btn btn-primary btn-sm" onclick="runSmartMatch()">✦ Match Products</button>
       </div>
     </div>
   </div>
@@ -2468,9 +2472,18 @@ function addAllFGToQuote() {
 }
 
 async function runSmartMatch() {
-  const pasteEl = document.getElementById('paste-spec');
+  // Check both paste areas — workspace tab uses paste-spec-ws, quotes page uses paste-spec
+  const pasteEl = (() => {
+    const main = document.getElementById('paste-spec');
+    const ws   = document.getElementById('paste-spec-ws');
+    const wsPaste = document.getElementById('ws-product-paste');
+    if (main?.value?.trim()) return main;
+    if (ws?.value?.trim()) return ws;
+    if (wsPaste?.value?.trim()) return wsPaste;
+    return main;
+  })();
   const raw = pasteEl?.value?.trim();
-  if (!raw) { alert('Paste a product list or spec first.'); return; }
+  if (!raw) { alert('Please upload a file or paste your product list first.'); return; }
 
   // ── SMART LINE PARSER ──────────────────────────────────────────────
   // Handles: plain text, CSV with quantity/revenue columns, product codes
@@ -3066,13 +3079,34 @@ function updateQuoteSummary() {
 function handlePriceFileUpload(input) {
   const file = input.files[0];
   if (!file) return;
-  trackSourceFormat(file.name); // remember the format so we can export in same format
+  trackSourceFormat(file.name);
+
+  // Show loading state on the upload zone
+  const icon  = document.getElementById('price-upload-icon');
+  const label = document.getElementById('price-upload-label');
+  const sub   = document.getElementById('price-upload-sub');
+  if (icon)  icon.textContent  = '⏳';
+  if (label) label.textContent = `Loading ${file.name}...`;
+  if (sub)   sub.textContent   = 'Reading file — matching will start automatically';
+
   const reader = new FileReader();
   reader.onload = (e) => {
     const content = e.target.result;
     const pasteEl = document.getElementById('paste-spec');
     if (pasteEl) pasteEl.value = content;
-    showVaultToast(`${file.name} loaded — click ✦ Smart Match to analyse`);
+
+    // Update zone to show file loaded
+    if (icon)  icon.textContent  = '✓';
+    if (label) { label.textContent = file.name; label.style.color = '#10b981'; }
+    if (sub)   sub.textContent   = `${content.split('\n').filter(l=>l.trim()).length} lines loaded — matching now...`;
+
+    // Auto-run match immediately
+    setTimeout(() => runSmartMatch(), 200);
+  };
+  reader.onerror = () => {
+    if (icon)  icon.textContent  = '❌';
+    if (label) label.textContent = 'Upload failed — try again';
+    showVaultToast('File could not be read — try CSV or TXT format');
   };
   reader.readAsText(file);
 }
@@ -5697,9 +5731,11 @@ function restoreQuestionsToWorkspace(tender) {
   setTimeout(() => { updateActionsStrip(); updateProgressBar(answered, total); }, 100);
 }
 
-function buildQuestionBlock(qText, num, answer, isDone) {
+function buildQuestionBlock(qText, num, answer, isDone, isReviewed) {
   const hasAction = answer && answer.includes('⚠️ ACTION NEEDED');
-  return `<div class="question-block" style="background:rgba(255,255,255,0.03);border:1px solid ${hasAction?'rgba(245,158,11,0.25)':'var(--border)'};border-radius:10px;padding:14px 16px;">
+  const reviewed = isReviewed || false;
+  const borderCol = reviewed ? 'rgba(16,185,129,0.3)' : hasAction ? 'rgba(245,158,11,0.25)' : 'var(--border)';
+  return `<div class="question-block" style="background:rgba(255,255,255,0.03);border:1px solid ${borderCol};border-radius:10px;padding:14px 16px;">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;gap:8px;">
       <div style="display:flex;align-items:flex-start;gap:10px;flex:1;">
         <span style="background:rgba(124,58,237,0.2);color:#a78bfa;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;flex-shrink:0;">${num}</span>
@@ -5717,9 +5753,109 @@ function buildQuestionBlock(qText, num, answer, isDone) {
     </div>` : ''}
     <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap;">
       <button onclick="generateAI(this,${num})" style="background:linear-gradient(135deg,rgba(124,58,237,0.3),rgba(79,70,229,0.2));color:#a78bfa;border:1px solid rgba(124,58,237,0.3);border-radius:6px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;">✦ SKAI</button>
-      <button onclick="wsRemoveQuestion(${num})" style="margin-left:auto;background:none;border:none;color:rgba(239,68,68,0.4);font-size:11px;cursor:pointer;padding:4px 8px;">✕</button>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:auto;" title="Tick once you have read, edited and are happy with this answer">
+        <input type="checkbox" class="q-reviewed" id="reviewed-${num}" ${reviewed?'checked':''} onchange="markReviewed(${num})"
+          style="width:14px;height:14px;accent-color:#10b981;cursor:pointer;">
+        <span id="reviewed-label-${num}" style="font-size:11px;font-weight:600;color:${reviewed?'#10b981':'var(--muted)'};">${reviewed?'✓ Approved':'Approve answer'}</span>
+      </label>
+      <button onclick="wsRemoveQuestion(${num})" style="background:none;border:none;color:rgba(239,68,68,0.4);font-size:11px;cursor:pointer;padding:4px 8px;">✕</button>
     </div>
   </div>`;
+}
+
+function markReviewed(num) {
+  const cb = document.getElementById('reviewed-' + num);
+  const label = document.getElementById('reviewed-label-' + num);
+  const block = cb?.closest('.question-block');
+  const checked = cb?.checked;
+  if (label) {
+    label.textContent = checked ? '✓ Approved' : 'Approve answer';
+    label.style.color = checked ? '#10b981' : 'var(--muted)';
+  }
+  if (block) {
+    const hasAction = document.getElementById('answer-' + num)?.value?.includes('⚠️ ACTION NEEDED');
+    block.style.borderColor = checked ? 'rgba(16,185,129,0.3)' : hasAction ? 'rgba(245,158,11,0.25)' : 'var(--border)';
+  }
+  updateReviewSummary();
+  saveTenderWorkspace();
+}
+
+function getReviewedStatuses() {
+  const statuses = {};
+  document.querySelectorAll('.q-reviewed').forEach(cb => {
+    const num = cb.id.replace('reviewed-', '');
+    statuses[num] = cb.checked;
+  });
+  return statuses;
+}
+
+function updateReviewSummary() {
+  const blocks = document.querySelectorAll('#questions-container .question-block');
+  const total = blocks.length;
+  if (!total) return;
+  let reviewed = 0;
+  blocks.forEach((_, i) => {
+    if (document.getElementById('reviewed-' + (i+1))?.checked) reviewed++;
+  });
+  // Update the count label with review progress
+  const label = document.getElementById('qs-count-label');
+  if (label && reviewed > 0) {
+    const answered = Array.from(blocks).filter((_, i) =>
+      document.getElementById('answer-' + (i+1))?.value && !document.getElementById('answer-' + (i+1))?.value.startsWith('[SKAI')
+    ).length;
+    if (reviewed === total) {
+      label.textContent = `✓ All ${total} answered & approved — ready to export`;
+      label.style.color = '#10b981';
+    } else {
+      label.textContent = `${answered} answered · ${reviewed}/${total} approved`;
+      label.style.color = 'var(--muted)';
+    }
+  }
+}
+
+function getReviewerName() {
+  return document.getElementById('ws-tender-name') ?
+    (localStorage.getItem('skai-reviewer-name') || '') : '';
+}
+
+function promptReviewerName() {
+  return new Promise(resolve => {
+    const saved = localStorage.getItem('skai-reviewer-name') || '';
+    if (saved) { resolve(saved); return; }
+    // Show inline prompt in a mini modal
+    let modal = document.getElementById('modal-reviewer');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'modal-reviewer';
+      modal.className = 'modal-overlay';
+      document.body.appendChild(modal);
+    }
+    modal.innerHTML = `<div class="modal" style="max-width:420px;width:95%;">
+      <div class="modal-title">Who is reviewing this tender?</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:14px;">Your name will appear on the compliance declaration added to the export.</div>
+      <input id="reviewer-name-input" type="text" placeholder="e.g. Mark Handy, Tender & Compliance Manager"
+        style="width:100%;font-size:13px;padding:10px 12px;border-radius:8px;background:var(--navy2);border:1px solid var(--border);color:var(--text);margin-bottom:12px;">
+      <input id="reviewer-role-input" type="text" placeholder="Job title (optional)"
+        style="width:100%;font-size:13px;padding:10px 12px;border-radius:8px;background:var(--navy2);border:1px solid var(--border);color:var(--text);margin-bottom:16px;">
+      <div style="display:flex;gap:8px;">
+        <button onclick="
+          const n = document.getElementById('reviewer-name-input').value.trim();
+          const r = document.getElementById('reviewer-role-input').value.trim();
+          const full = n + (r ? ', ' + r : '');
+          if(n) { localStorage.setItem('skai-reviewer-name', full); closeModal('modal-reviewer'); document.getElementById('modal-reviewer')._resolve(full); }
+          else alert('Please enter your name');"
+          style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:white;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;flex:1;">
+          Confirm & Export
+        </button>
+        <button onclick="closeModal('modal-reviewer');document.getElementById('modal-reviewer')._resolve('');"
+          style="background:var(--navy2);color:var(--muted);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:12px;cursor:pointer;">
+          Skip
+        </button>
+      </div>
+    </div>`;
+    modal._resolve = resolve;
+    modal.classList.add('open');
+  });
 }
 
 async function autoFillActionNeeded(qNum, qText, currentAnswer) {
@@ -5892,28 +6028,39 @@ function updateProgressBar(answered, total) {
   if (fill) fill.style.width = pc + '%';
 }
 
-function previewTenderDocument() {
+async function previewTenderDocument() {
   const blocks = document.querySelectorAll('#questions-container .question-block');
   if (!blocks.length) { alert('No questions to preview.'); return; }
+
+  const reviewer = await promptReviewerName();
   const name = document.getElementById('ws-tender-name')?.value || 'Tender Document';
   const customer = document.getElementById('ws-tender-customer')?.value || '';
   const type = document.getElementById('ws-tender-type')?.value || 'PQQ';
   const deadline = document.getElementById('ws-tender-deadline')?.value || '';
   const logo = localStorage.getItem('skai-branding-logo') || '';
   const brandColour = '#7c3aed';
+  const now = new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
+
+  let reviewedCount = 0;
+  const total = blocks.length;
+  blocks.forEach((_, i) => { if (document.getElementById('reviewed-'+(i+1))?.checked) reviewedCount++; });
 
   const qRows = Array.from(blocks).map((block, i) => {
     const q = block.querySelector('.q-text')?.textContent?.trim() || '';
     const a = document.getElementById('answer-'+(i+1))?.value || '[Not yet answered]';
+    const isReviewed = document.getElementById('reviewed-'+(i+1))?.checked;
     const hasAction = a.includes('⚠️ ACTION NEEDED');
     const actionIdx = a.indexOf('⚠️ ACTION NEEDED');
     const mainAnswer = actionIdx > -1 ? a.substring(0, actionIdx).trim() : a.trim();
     const actionPart = actionIdx > -1 ? a.substring(actionIdx).trim() : '';
     return `<div style="margin-bottom:32px;page-break-inside:avoid;">
       <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px;">
-        <div style="background:${brandColour};color:white;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;flex-shrink:0;">Q${i+1}</div>
+        <div style="background:#7c3aed;color:white;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;flex-shrink:0;">Q${i+1}</div>
         <div style="font-size:14px;font-weight:700;color:#111827;line-height:1.4;flex:1;">${q}</div>
-        ${hasAction?'<div style="background:#fee2e2;color:#ef4444;border-radius:4px;padding:2px 8px;font-size:10px;font-weight:700;flex-shrink:0;">⚠️ ACTION</div>':''}
+        <div style="display:flex;gap:4px;flex-shrink:0;">
+          ${hasAction?'<span style="background:#fef2f2;color:#ef4444;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:700;">⚠️ ACTION</span>':''}
+          ${isReviewed?'<span style="background:#f0fdf4;color:#16a34a;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:700;">✓ APPROVED</span>':''}
+        </div>
       </div>
       <div style="margin-left:34px;font-size:13px;color:#374151;line-height:1.8;white-space:pre-wrap;">${mainAnswer}</div>
       ${actionPart?`<div style="margin:10px 0 0 34px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px 14px;font-size:12px;color:#b91c1c;white-space:pre-wrap;">${actionPart}</div>`:''}
@@ -5923,43 +6070,55 @@ function previewTenderDocument() {
   const actionCount = Array.from(blocks).filter((_,i) =>
     (document.getElementById('answer-'+(i+1))?.value||'').includes('⚠️ ACTION NEEDED')).length;
 
+  const declaration = reviewer ? `
+    <div style="margin-top:36px;padding:20px 24px;background:#f8fafc;border:2px solid #e2e8f0;border-radius:10px;page-break-inside:avoid;">
+      <div style="font-size:13px;font-weight:800;color:#1e293b;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px;">Reviewer Declaration</div>
+      <div style="font-size:12px;color:#374151;line-height:1.8;">I confirm that the responses contained in this submission have been prepared using our internal company knowledge, documentation and records. Research assistance tools were used to support the drafting process. All content has been personally reviewed, edited where necessary, and approved by the undersigned prior to submission. The responses accurately reflect the capabilities, certifications and operating practices of Eurox / Future Garments Ltd.</div>
+      <div style="margin-top:16px;display:flex;gap:40px;flex-wrap:wrap;">
+        <div><div style="font-size:11px;color:#64748b;margin-bottom:4px;">Reviewed and approved by</div><div style="font-size:13px;font-weight:700;color:#1e293b;">${reviewer}</div></div>
+        <div><div style="font-size:11px;color:#64748b;margin-bottom:4px;">Date</div><div style="font-size:13px;font-weight:700;color:#1e293b;">${now}</div></div>
+        <div><div style="font-size:11px;color:#64748b;margin-bottom:4px;">Responses reviewed</div><div style="font-size:13px;font-weight:700;color:${reviewedCount===total?'#16a34a':'#d97706'};">${reviewedCount} of ${total}</div></div>
+        <div style="margin-top:24px;"><div style="font-size:11px;color:#64748b;margin-bottom:20px;">Signature</div><div style="border-bottom:1px solid #94a3b8;width:200px;"></div></div>
+      </div>
+    </div>` : '';
+
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${name}</title>
 <style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:Arial,sans-serif;background:#f9fafb;}
 .page{max-width:860px;margin:0 auto;background:white;padding:48px;}
 .top{background:#111827;color:white;padding:10px 20px;display:flex;gap:12px;align-items:center;position:sticky;top:0;z-index:99;}
-.top button{background:${brandColour};color:white;border:none;padding:7px 16px;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;}
+.top button{background:#7c3aed;color:white;border:none;padding:7px 16px;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;}
 .top .g{background:rgba(255,255,255,0.15);}
 @media print{.top{display:none!important;}}
 </style></head><body>
 <div class="top">
-  <span style="font-weight:800;">♪ Love Me Tender</span>
+  <span style="font-weight:800;">Love Me Tender</span>
   <span style="color:#9ca3af;font-size:12px;flex:1;">Document Preview — ${name}</span>
   <button onclick="window.print()">🖨 Print / Save PDF</button>
   <button class="g" onclick="window.close()">✕ Close</button>
 </div>
 <div class="page">
-  <div style="border-bottom:3px solid ${brandColour};padding-bottom:24px;margin-bottom:32px;display:flex;justify-content:space-between;align-items:flex-start;">
+  <div style="border-bottom:3px solid #7c3aed;padding-bottom:24px;margin-bottom:32px;display:flex;justify-content:space-between;align-items:flex-start;">
     <div>
       ${logo?`<img src="${logo}" style="max-height:50px;max-width:160px;margin-bottom:12px;display:block;">`:''}
       <div style="font-size:24px;font-weight:900;color:#111827;margin-bottom:6px;">${name}</div>
       <div style="font-size:12px;color:#6b7280;">
-        <span style="background:${brandColour}22;color:${brandColour};border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;margin-right:8px;">${type}</span>
-        ${customer?`For: <strong>${customer}</strong>`:''}
-        ${deadline?` &nbsp;·&nbsp; Deadline: <strong>${deadline}</strong>`:''}
+        <span style="background:#7c3aed22;color:#7c3aed;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;margin-right:8px;">${type}</span>
+        ${customer?`For: <strong>${customer}</strong>`:''}${deadline?` &nbsp;·&nbsp; Deadline: <strong>${deadline}</strong>`:''}
       </div>
     </div>
     <div style="text-align:right;font-size:11px;color:#9ca3af;line-height:1.9;">
       <div style="font-weight:700;color:#374151;">Eurox / Future Garments Ltd</div>
       <div>Aqua House, Smethwick B66 3DL</div>
-      <div>Prepared: ${new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}</div>
-      <div style="color:#a78bfa;margin-top:4px;font-size:10px;">✦ Generated by SKAI Intelligence</div>
+      <div>Prepared: ${now}</div>
+      <div style="color:#a78bfa;margin-top:4px;font-size:10px;">✦ Drafted with SKAI Intelligence · Human reviewed</div>
     </div>
   </div>
   ${actionCount?`<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px 16px;margin-bottom:28px;font-size:13px;color:#b91c1c;font-weight:600;">⚠️ ${actionCount} question${actionCount>1?'s':''} have outstanding actions that need team input before submission.</div>`:''}
   ${qRows}
+  ${declaration}
   <div style="margin-top:40px;padding-top:20px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;">
     <span>Eurox / Future Garments Ltd · ISO 9001:2015 · BSIF Registered</span>
-    <span>♪ Love Me Tender by Southkey.io</span>
+    <span>Love Me Tender by Southkey.io</span>
   </div>
 </div></body></html>`;
 
@@ -6081,7 +6240,7 @@ function openWSPricingUpload() {
     trackSourceFormat(file.name);
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const pasteEl = document.getElementById('paste-spec');
+      const pasteEl = document.getElementById('paste-spec') || document.getElementById('paste-spec-ws');
       if (pasteEl) { pasteEl.value = ev.target.result; runSmartMatch(); }
     };
     reader.readAsText(file);
