@@ -4221,73 +4221,106 @@ async function generateAllAnswers() {
   if (progressBar) progressBar.style.display = 'block';
 
   const total = blocks.length;
-  let done = 0, failed = 0, skipped = 0;
+  let done = 0, failed = 0;
 
+  // Collect all unanswered questions
+  const toAnswer = [];
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
     const qText = block.querySelector('.q-text')?.textContent?.trim() || '';
     const qNum = i + 1;
     const textarea = document.getElementById('answer-' + qNum);
     if (!textarea) continue;
-
-    // Skip already successfully answered (not failed placeholder)
-    const badge = block.querySelector('.q-status');
     const currentVal = textarea.value?.trim() || '';
+    const badge = block.querySelector('.q-status');
     const alreadyDone = badge?.textContent?.includes('Done') && currentVal && !currentVal.startsWith('[SKAI could not');
-    if (alreadyDone) { skipped++; done++; continue; }
+    if (alreadyDone) { done++; continue; }
+    toAnswer.push({ qNum, qText, textarea, badge, block });
+  }
 
-    if (currentQ) currentQ.textContent = '✦ Writing Q' + qNum + ' of ' + total + ': ' + qText.substring(0, 70) + (qText.length > 70 ? '...' : '');
-    if (progressText) progressText.textContent = done + ' / ' + total + (failed > 0 ? ' · ' + failed + ' failed' : '');
+  // Process in batches of 5
+  const BATCH_SIZE = 5;
+  const batchPrompt = (questions) => `You are writing tender answers for Eurox / Future Garments Ltd.
+
+RULES FOR EVERY ANSWER:
+- Write 3-5 sentences of real substantive content. Never skip straight to ACTION NEEDED.
+- Cyber Essentials certification confirms: firewalls configured, anti-malware active, patches applied within 14 days, least-privilege access controls, MFA for remote/cloud, secure device configuration, staff cyber awareness training. State these confidently.
+- ISO 9001: documented processes, annual audits, corrective actions, full traceability.
+- ISO 45001: written H&S policy, risk assessments, incident recording, H&S training for all staff.
+- ISO 14001: environmental policy, waste/energy monitoring, annual targets.
+- GDPR: privacy notices, data register, breach procedures, encrypted data, restricted access.
+- Only add ACTION NEEDED at the very end if you need a specific named software, exact incident count, or named individual. Maximum one per answer. If in doubt — answer it fully without flagging.
+
+Return ONLY a JSON array in this exact format, no other text:
+[{"n":1,"a":"answer text"},{"n":2,"a":"answer text"}]
+
+Questions:
+${questions.map((q, i) => `${i+1}. [Q${q.qNum}] ${q.qText}`).join('\n')}`;
+
+  for (let b = 0; b < toAnswer.length; b += BATCH_SIZE) {
+    const batch = toAnswer.slice(b, b + BATCH_SIZE);
+    const batchEnd = Math.min(b + BATCH_SIZE, toAnswer.length);
+
+    if (currentQ) currentQ.textContent = `✦ Writing questions ${toAnswer[b].qNum}–${toAnswer[batchEnd-1].qNum} of ${total}...`;
+    if (progressText) progressText.textContent = done + ' / ' + total;
     if (progressFill) progressFill.style.width = Math.round((done / total) * 100) + '%';
 
     try {
-      const answer = await callSKAI({
+      const result = await callSKAI({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
+        max_tokens: 4000,
         system: buildCachedSystem(),
-        messages: [{ role: 'user', content: `Write a complete tender answer for this question on behalf of Eurox / Future Garments Ltd.
-
-MANDATORY RULES — READ CAREFULLY:
-1. Write a FULL answer of at least 4-5 sentences using the company facts and certification implications. NEVER start with or lead with ACTION NEEDED.
-2. Cyber Essentials certification means you CAN confidently state ALL of these without asking anyone: boundary firewalls are in place and configured, all devices run up-to-date anti-malware software, software patches are applied within 14 days, user access follows least-privilege principles with regular access reviews, all devices are securely configured with unnecessary services disabled, multi-factor authentication is used for remote access and cloud services, and staff receive cyber security awareness training. State these FACTS confidently — they are verified by the certification.
-3. ISO 9001 means: documented quality procedures exist, internal audits are conducted, management reviews happen annually, corrective actions are tracked, and there is full product traceability.
-4. ISO 45001 means: written H&S policy exists, risk assessments are conducted, incidents are recorded and investigated, H&S training is provided to all staff, and there is a named H&S responsible person.
-5. ISO 14001 means: environmental policy exists, energy and waste are monitored, legal compliance is tracked, and environmental targets are set annually.
-6. GDPR compliance means: privacy notices exist, a data register is maintained, breach procedures are in place, data is encrypted in transit and at rest, and access to personal data is restricted.
-7. ACTION NEEDED should ONLY appear when you need a genuinely specific unknown: an exact named software product (e.g. "which anti-virus software specifically"), a precise number that varies (e.g. exact RIDDOR incident count last year), or a named individual's specific qualification. 
-8. DO NOT use ACTION NEEDED for general policy questions, process questions, or anything covered by the certifications. The certifications prove those controls exist.
-9. Maximum ONE ACTION NEEDED per answer, at the very end only.
-10. If in doubt — answer it. A confident answer based on certifications is better than an unnecessary flag.
-
-Question: "${qText}"` }]
+        messages: [{ role: 'user', content: batchPrompt(batch) }]
       }, 3, 2000);
 
-      textarea.value = answer;
-      textarea.style.borderColor = '';
-      if (badge) { badge.textContent = '✓ Done'; badge.className = 'badge badge-active q-status'; }
-      const toolbar = document.getElementById('skai-' + qNum);
-      if (toolbar) toolbar.classList.add('visible');
-
-      // If answer still has ACTION NEEDED, auto-generate a suggested fill
-      if (answer.includes('⚠️ ACTION NEEDED')) {
-        await autoFillActionNeeded(qNum, qText, answer);
+      // Parse JSON response
+      let answers = [];
+      try {
+        const clean = result.replace(/```json|```/g, '').trim();
+        answers = JSON.parse(clean);
+      } catch(e) {
+        // If JSON fails, try to extract answers line by line
+        answers = batch.map((q, i) => ({ n: i+1, a: result }));
       }
+
+      // Apply answers to textareas
+      answers.forEach((item) => {
+        const idx = (item.n || 1) - 1;
+        if (idx < 0 || idx >= batch.length) return;
+        const { qNum, qText, textarea, badge, block } = batch[idx];
+        const answer = item.a || '';
+        if (!answer) return;
+
+        textarea.value = answer;
+        textarea.style.borderColor = '';
+        if (badge) { badge.textContent = '✓ Done'; badge.className = 'badge badge-active q-status'; }
+        done++;
+
+        // Auto-suggest for any remaining ACTION NEEDED
+        if (answer.includes('⚠️ ACTION NEEDED')) {
+          autoFillActionNeeded(qNum, qText, answer); // fire and forget
+        }
+      });
 
       autoSaveTender();
 
     } catch(e) {
-      failed++;
-      textarea.value = '[SKAI could not generate this answer — click ✦ SKAI Intelligence to retry]';
-      textarea.style.borderColor = 'rgba(239,68,68,0.6)';
-      if (badge) { badge.textContent = '⚠ Failed'; badge.className = 'badge q-status'; badge.style.background = 'rgba(239,68,68,0.2)'; badge.style.color = '#ef4444'; }
+      // Batch failed — mark all as failed for retry
+      batch.forEach(({ textarea, badge }) => {
+        failed++;
+        textarea.value = '[SKAI could not generate — click ✦ SKAI to retry]';
+        textarea.style.borderColor = 'rgba(239,68,68,0.6)';
+        if (badge) { badge.textContent = '⚠ Failed'; badge.className = 'badge q-status'; badge.style.color = '#ef4444'; }
+      });
     }
 
-    done++;
-    if (progressText) progressText.textContent = done + ' / ' + total + (failed > 0 ? ' · ' + failed + ' failed — will retry' : '');
+    if (progressText) progressText.textContent = done + ' / ' + total + (failed > 0 ? ' · ' + failed + ' failed' : '');
     if (progressFill) progressFill.style.width = Math.round((done / total) * 100) + '%';
 
-    // Respectful delay between calls — prevents Worker overload
-    await new Promise(r => setTimeout(r, 1200));
+    // Small delay between batches to be respectful to the Worker
+    if (b + BATCH_SIZE < toAnswer.length) {
+      await new Promise(r => setTimeout(r, 800));
+    }
   }
 
   // Auto-retry any failures once
