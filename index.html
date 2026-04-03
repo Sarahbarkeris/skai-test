@@ -4188,14 +4188,14 @@ function loadTenderIntoBuilder(tender) {
     }
   }
 
-  // Reset wizard for next use
+  // Reset wizard state vars for next use (don't navigate away)
   _wizFileContent = null;
   _wizFileName = '';
   const badge = document.getElementById('wiz-file-badge');
   if (badge) badge.style.display = 'none';
   const area = document.getElementById('wiz-paste-area');
   if (area) area.value = '';
-  wizardNext(1);
+  // DO NOT call wizardNext(1) here — it resets the workspace view
 }
 
 
@@ -4377,6 +4377,12 @@ ${questions.map((q, i) => `${i+1}. [Q${q.qNum}] ${q.qText}`).join('\n')}`;
   updateProgressBar(total - failed, total);
   saveTenderWorkspace();
   buildCompletionChecklist();
+  // Make sure we stay on the workspace view — never navigate away
+  const emptyState = document.getElementById('workspace-empty');
+  const activeState = document.getElementById('workspace-active');
+  if (emptyState) emptyState.style.display = 'none';
+  if (activeState) activeState.style.display = 'block';
+  showSection('builder');
 }
 
 function exportAnswers(format) {
