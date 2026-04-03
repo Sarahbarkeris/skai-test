@@ -5673,11 +5673,34 @@ function deleteTenderWorkspace(id, e) {
   saveTenders(tenders);
   if (_activeTenderId === id) {
     _activeTenderId = null;
-    document.getElementById('workspace-empty').style.display = 'flex';
-    document.getElementById('workspace-active').style.display = 'none';
+    // Clear the questions container
+    const qc = document.getElementById('questions-container');
+    if (qc) qc.innerHTML = '';
+    // Reset to empty state
+    const emptyState = document.getElementById('workspace-empty');
+    const activeState = document.getElementById('workspace-active');
+    if (emptyState) emptyState.style.display = 'flex';
+    if (activeState) activeState.style.display = 'none';
+    // Clear the paste box so old questions don't persist
+    const pasteBox = document.getElementById('quick-paste-questions');
+    if (pasteBox) pasteBox.value = '';
+    // Hide loaded state, show empty state in questions panel
+    const qsLoaded = document.getElementById('qs-loaded-state');
+    const qsEmpty = document.getElementById('qs-empty-state');
+    if (qsLoaded) qsLoaded.style.display = 'none';
+    if (qsEmpty) qsEmpty.style.display = 'block';
+    // Clear quote lines
+    quoteLines = [];
   }
   renderTenderSidebar();
   updateHomeStats();
+  // If no tenders left, go to empty workspace
+  if (tenders.length === 0) {
+    const emptyState = document.getElementById('workspace-empty');
+    const activeState = document.getElementById('workspace-active');
+    if (emptyState) emptyState.style.display = 'flex';
+    if (activeState) activeState.style.display = 'none';
+  }
 }
 
 function renderTenderSidebar() {
@@ -6212,6 +6235,9 @@ function quickStartFromPaste() {
   createNewTenderWorkspace();
   // Wait for workspace to open then load questions
   setTimeout(() => {
+    // Clear any old questions first
+    const container = document.getElementById('questions-container');
+    if (container) container.innerHTML = '';
     // Extract questions from the pasted text
     const lines = text.split('\n')
       .map(l => l.replace(/^\s*\d+[\.\)]\s*/, '').trim())
