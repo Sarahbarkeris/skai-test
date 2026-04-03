@@ -830,7 +830,7 @@
             </label>
             <!-- Preview button -->
             <button onclick="previewTenderDocument()" id="ws-preview-btn" style="display:none;background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;">👁 Preview</button>
-            <button id="export-answers-btn" onclick="showActionNeededDigest()" style="display:none;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:white;border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;">📋 Export</button>
+            <button id="export-answers-btn-header" onclick="showActionNeededDigest()" style="display:none;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:white;border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;">📋 Export</button>
           </div>
         </div>
 
@@ -857,16 +857,7 @@
           </div>
         </div>
 
-        <!-- SKAI generating progress -->
-        <div id="skai-progress-bar" style="display:none;margin-bottom:14px;background:rgba(124,58,237,0.08);border:1px solid rgba(124,58,237,0.2);border-radius:10px;padding:14px 16px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <span id="skai-current-q" style="font-size:12px;color:#a78bfa;font-weight:600;"></span>
-            <span id="skai-progress-text" style="font-size:11px;color:var(--muted);"></span>
-          </div>
-          <div style="background:rgba(255,255,255,0.08);border-radius:4px;height:6px;overflow:hidden;">
-            <div id="skai-progress-fill" style="height:100%;background:linear-gradient(90deg,#7c3aed,#4f46e5);border-radius:4px;transition:width 0.4s;width:0%;"></div>
-          </div>
-        </div>
+<!-- progress bar moved to qs-loaded-state -->
 
         <!-- TABS: Questions / Pricing / Notes -->
         <div style="display:flex;gap:2px;margin-bottom:16px;background:rgba(255,255,255,0.04);border-radius:10px;padding:3px;">
@@ -972,10 +963,10 @@
             <textarea id="ws-product-paste" rows="6" style="width:100%;font-size:12px;resize:none;" placeholder="Paste your product list here — one per line or CSV format"></textarea>
             <button onclick="prepareWSMatch()" style="margin-top:8px;background:linear-gradient(135deg,#10b981,#059669);color:white;border:none;border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;cursor:pointer;">✦ Match All Products</button>
           </div>
-          <div id="match-results-section" style="display:none;margin-bottom:16px;">
-            <div id="match-results"></div>
+          <div id="match-results-section-ws" style="display:none;margin-bottom:16px;">
+            <div id="match-results-ws"></div>
           </div>
-          <div id="quote-lines-section" style="display:none;">
+          <div id="quote-lines-section-ws" style="display:none;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
               <div style="font-size:13px;font-weight:700;">Quote Lines</div>
               <div style="display:flex;gap:8px;">
@@ -983,9 +974,9 @@
                 <button onclick="clearQuote()" style="background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer;">Clear</button>
               </div>
             </div>
-            <div id="quote-lines"></div>
-            <div id="quote-summary" style="margin-top:12px;"></div>
-            <div id="fg-percentage-bar" style="display:none;"></div>
+            <div id="quote-lines-ws"></div>
+            <div id="quote-summary-ws" style="margin-top:12px;"></div>
+            <div id="fg-percentage-bar-ws" style="display:none;"></div>
           </div>
         </div>
 
@@ -6538,6 +6529,23 @@ function exportFullTender() {
 }
 
 function initWorkspace() {
+  // Clean up blank untitled tenders on startup (prevents accumulation)
+  try {
+    let tenders = getTenders();
+    // Remove tenders with no name AND no questions (truly empty)
+    const before = tenders.length;
+    tenders = tenders.filter(t => 
+      (t.name && t.name.trim()) || 
+      (t.questions && t.questions.length > 0)
+    );
+    // Also cap at 50 most recent
+    if (tenders.length > 50) tenders = tenders.slice(0, 50);
+    if (tenders.length !== before) {
+      saveTenders(tenders);
+      console.log(`Cleaned up ${before - tenders.length} empty tenders`);
+    }
+  } catch(e) {}
+  
   renderTenderSidebar();
   const tenders = getTenders();
   if (tenders.length) openTenderWorkspace(tenders[0].id);
