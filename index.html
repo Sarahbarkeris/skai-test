@@ -768,12 +768,31 @@
     <!-- RIGHT: ACTIVE TENDER WORKSPACE -->
     <div id="tender-workspace" style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:24px;">
 
-      <!-- EMPTY STATE -->
-      <div id="workspace-empty" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;min-height:400px;text-align:center;color:var(--muted);">
-        <div style="font-size:48px;margin-bottom:16px;">📋</div>
-        <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px;">No tender open</div>
-        <div style="font-size:13px;margin-bottom:20px;">Create a new tender or select one from the list</div>
-        <button onclick="createNewTenderWorkspace()" style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:white;border:none;border-radius:8px;padding:10px 24px;font-size:13px;font-weight:700;cursor:pointer;">+ Start New Tender</button>
+      <!-- EMPTY STATE — smart entry point -->
+      <div id="workspace-empty" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;min-height:400px;text-align:center;padding:24px;">
+        <div style="font-size:36px;margin-bottom:12px;">✦</div>
+        <div style="font-size:18px;font-weight:800;color:var(--text);margin-bottom:6px;">Start a new tender</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:24px;">Paste your questions below or upload a file — SKAI does the rest</div>
+
+        <!-- Big paste area right on the empty state -->
+        <div style="width:100%;max-width:560px;margin-bottom:16px;">
+          <textarea id="quick-paste-questions" rows="6"
+            style="width:100%;font-size:13px;resize:none;border-radius:10px;padding:14px;line-height:1.6;"
+            placeholder="Paste your PQQ or ITT questions here — copy straight from the portal or document.&#10;&#10;e.g.&#10;1. Describe your quality management system&#10;2. Provide details of your H&amp;S policy&#10;3. What is your annual turnover?&#10;&#10;Or just paste the whole document — SKAI will extract the questions."></textarea>
+          <div style="display:flex;gap:10px;margin-top:10px;">
+            <button onclick="quickStartFromPaste()"
+              style="flex:1;background:linear-gradient(135deg,#7c3aed,#4f46e5);color:white;border:none;border-radius:8px;padding:12px;font-size:14px;font-weight:800;cursor:pointer;">
+              ✦ Load Questions &amp; Answer with SKAI
+            </button>
+            <label style="cursor:pointer;flex-shrink:0;">
+              <div style="background:var(--navy2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;font-size:13px;font-weight:700;color:var(--muted);white-space:nowrap;">
+                📎 Upload File
+              </div>
+              <input type="file" accept=".csv,.txt,.pdf,.docx" style="display:none;" onchange="quickStartFromFile(this)">
+            </label>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);">or <span onclick="createNewTenderWorkspace()" style="color:#a78bfa;cursor:pointer;text-decoration:underline;">create a blank tender</span> to fill in manually</div>
       </div>
 
       <!-- ACTIVE WORKSPACE (hidden until tender opened) -->
@@ -2485,39 +2504,61 @@ async function runSmartMatch() {
   const raw = pasteEl?.value?.trim();
   if (!raw) { alert('Please upload a file or paste your product list first.'); return; }
 
-  // ── SMART LINE PARSER ──────────────────────────────────────────────
-  // Handles: plain text, CSV with quantity/revenue columns, product codes
-  function parseLine(line) {
-    // Skip header rows
-    if (/^product.name|^item|^description|^sku|^code/i.test(line.trim())) return null;
+  // ── SMART CSV PARSER — handles quoted fields, various formats ──────
+  function parseCSVLine(line) {
+    // Proper CSV split respecting quoted fields
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQuotes = !inQuotes; continue; }
+      if (ch === ',' && !inQuotes) { result.push(current.trim()); current = ''; continue; }
+      current += ch;
+    }
+    result.push(current.trim());
+    return result;
+  }
 
-    // CSV: first column is product name, rest are numbers (qty, revenue etc)
-    // e.g. "UCFD-P3VC Charcoal Mask (Box of 10),451,1020,16646.4"
-    const csvParts = line.split(',');
+  function parseLine(line) {
+    if (!line.trim()) return null;
+    // Skip obvious header rows
+    if (/^product.name|^item.no|^description|^sku|^code|^#,|^line,/i.test(line.trim())) return null;
+
+    const csvParts = parseCSVLine(line);
+
     if (csvParts.length >= 2) {
-      // Check if columns 2+ are numeric (qty/revenue data)
-      const restNumeric = csvParts.slice(1).every(p => /^\s*[\d.]+\s*$/.test(p.replace(/[£$"]/g,'')));
-      if (restNumeric) {
-        // First column is the product name — strip quotes
-        return csvParts[0].replace(/^["']|["']$/g,'').trim();
-      }
+      const firstCol = csvParts[0].replace(/^["']|["']$/g, '').trim();
+      // Skip if first col is clearly a header word
+      if (/^(product|item|description|name|code|sku|ref|#)$/i.test(firstCol)) return null;
+      // If remaining columns contain numbers, first col is the product name
+      const hasNumericCol = csvParts.slice(1).some(p => /^\s*[\d,.]+\s*$/.test(p.replace(/[£$"%]/g,'')));
+      if (hasNumericCol && firstCol.length > 3) return firstCol;
     }
 
     // Tab separated
     if (line.includes('\t')) {
-      return line.split('\t')[0].replace(/^["']|["']$/g,'').trim();
+      const parts = line.split('\t');
+      const first = parts[0].replace(/^["']|["']$/g,'').trim();
+      if (first.length > 3) return first;
     }
 
-    // Plain text line — use as-is, strip trailing numbers/codes
-    return line.replace(/,.*$/, '').replace(/^\d+[\.\)]\s*/, '').trim();
+    // Plain text — use whole line, strip leading numbers
+    const cleaned = line.replace(/^["']|["']$/g,'').replace(/^\d+[\.\)]\s*/, '').replace(/,.*$/, '').trim();
+    return cleaned.length > 3 ? cleaned : null;
   }
 
   const rawLines = raw.split('\n');
   const allLines = rawLines
     .map(l => parseLine(l))
-    .filter(l => l && l.length > 2);
+    .filter((l, i, arr) => l && l.length > 2 && arr.indexOf(l) === i); // dedupe too
 
-  if (!allLines.length) { alert('No valid product lines found. Check your format.'); return; }
+  if (!allLines.length) {
+    // Show what we got for debugging
+    const preview = rawLines.slice(0,3).join(' | ');
+    alert(`No product lines could be extracted.\n\nFirst lines of your file:\n${preview}\n\nTry pasting just the product names, one per line.`);
+    return;
+  }
 
   const section = document.getElementById('match-results-section');
   const container = document.getElementById('match-results');
@@ -6125,6 +6166,49 @@ async function previewTenderDocument() {
   const win = window.open('', '_blank', 'width=1000,height=860,scrollbars=yes,resizable=yes');
   if (!win) { alert('Please allow pop-ups to view the preview.'); return; }
   win.document.write(html); win.document.close();
+}
+
+function quickStartFromPaste() {
+  const text = document.getElementById('quick-paste-questions')?.value?.trim();
+  if (!text) { showVaultToast('Paste some questions first'); return; }
+  // Create a new tender automatically
+  createNewTenderWorkspace();
+  // Wait for workspace to open then load questions
+  setTimeout(() => {
+    // Extract questions from the pasted text
+    const lines = text.split('\n')
+      .map(l => l.replace(/^\s*\d+[\.\)]\s*/, '').trim())
+      .filter(l => l.length > 8);
+    if (lines.length) {
+      renderQuestionsToWorkspace(lines);
+      // Auto-generate answers immediately
+      setTimeout(() => generateAllAnswers(), 400);
+    }
+  }, 300);
+}
+
+function quickStartFromFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  showVaultToast(`Loading ${file.name}...`);
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const text = e.target.result;
+    createNewTenderWorkspace();
+    setTimeout(() => {
+      const lines = text.split('\n')
+        .map(l => l.replace(/^\s*\d+[\.\)]\s*/, '').trim())
+        .filter(l => l.length > 8);
+      if (lines.length) {
+        renderQuestionsToWorkspace(lines);
+        setTimeout(() => generateAllAnswers(), 400);
+        showVaultToast(`${lines.length} questions loaded — SKAI is answering them`);
+      } else {
+        showVaultToast('Could not extract questions — try pasting them directly');
+      }
+    }, 300);
+  };
+  reader.readAsText(file);
 }
 
 function showWSQuestionPaste() {
