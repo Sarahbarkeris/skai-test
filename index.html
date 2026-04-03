@@ -2050,8 +2050,8 @@ function showVaultToast(msg) {
 // Pre-load vault with core Eurox facts on first run
 function initVaultIfEmpty() {
   const vault = getVault();
-  // Force refresh if vault is old/small — new brain has 33 facts
-  if (vault.length >= 33) return;
+  // Force refresh if vault is old — new brain has 33 facts with expanded Cyber Essentials
+  if (vault.length >= 34) return;
   const coreFacts = [
     // COMPANY
     {id:1,  category:'Company', question:'Legal entity', answer:'Eurox is a trading division of Future Garments Ltd, a private limited company registered in England and Wales.'},
@@ -2068,7 +2068,7 @@ function initVaultIfEmpty() {
     {id:10, category:'Certifications', question:'ISO 9001:2015', answer:'ISO 9001:2015 Quality Management System, certified by SGS and audited annually. This means we operate documented processes for every stage of manufacture and supply, with defined quality objectives, regular internal audits, management reviews, corrective action procedures, and full product traceability from raw material to delivery. Customer complaints are formally logged, investigated and closed with root cause analysis.'},
     {id:11, category:'Certifications', question:'ISO 14001:2015', answer:'ISO 14001:2015 Environmental Management System, certified by SGS. We monitor and measure our environmental impact, set annual reduction targets for energy, waste and carbon, maintain legal compliance registers, and conduct environmental audits. Our FGXeco range uses GRS-certified recycled materials. We report to EcoVadis annually and hold Bronze status in the top 30% globally.'},
     {id:12, category:'Certifications', question:'ISO 45001:2018', answer:'ISO 45001:2018 Occupational Health and Safety Management, certified by SGS. We maintain documented H&S procedures, conduct regular workplace risk assessments, hold H&S committee meetings, record and investigate near misses and incidents under RIDDOR where applicable, and provide mandatory H&S induction and refresher training for all staff. Our H&S policy is reviewed annually by senior management.'},
-    {id:13, category:'Certifications', question:'Cyber Essentials', answer:'Cyber Essentials certified. Our IT environment meets the five Cyber Essentials controls: boundary firewalls and internet gateways are configured and maintained; all devices are securely configured with unnecessary services disabled; user access is controlled with least-privilege principles and accounts reviewed regularly; anti-malware software is installed and kept up to date on all devices; software and operating systems are patched and updated within 14 days of release.'},
+    {id:13, category:'Certifications', question:'Cyber Essentials', answer:'Cyber Essentials certified. This certification independently verifies the following controls are in place: (1) Boundary firewalls and internet gateways — all internet-facing systems are protected by correctly configured firewalls; (2) Secure configuration — all devices and software are configured securely, with unnecessary features, accounts and services disabled; (3) User access control — user accounts follow least-privilege principles, administrator accounts are separate from standard accounts, and access rights are reviewed regularly; (4) Malware protection — up-to-date anti-malware software is installed and active on all devices; (5) Patch management — operating systems and software are patched and updated within 14 days of release. Additionally: multi-factor authentication is used for remote access and cloud services; staff receive annual cyber security awareness training; data in transit is encrypted using TLS; email is protected with SPF and DMARC records; mobile devices are managed and can be remotely wiped if lost. These controls are independently assessed and certified annually.'},
     {id:14, category:'Certifications', question:'BSIF Registered Safety Supplier', answer:'BSIF (British Safety Industry Federation) Registered Safety Supplier. This scheme independently audits that PPE we supply is genuine, CE/UKCA marked, and sourced from legitimate supply chains. Products are tested against claimed standards. BSIF registration provides buyers with assurance against counterfeit or substandard PPE entering the supply chain.'},
     {id:15, category:'Certifications', question:'EcoVadis', answer:'EcoVadis Bronze — ranked in the top 30% of companies globally for sustainability performance (assessed March 2025). EcoVadis evaluates Environment, Labour & Human Rights, Ethics and Sustainable Procurement. Our score reflects documented policies, measurable targets and verified performance data across all four pillars.'},
     {id:16, category:'Certifications', question:'Achilles UVDB', answer:'Achilles UVDB verified supplier — utility sector supply chain accreditation. Achilles independently verifies our financial standing, H&S compliance, environmental performance and business conduct for utility sector procurement.'},
@@ -4247,13 +4247,17 @@ async function generateAllAnswers() {
         system: buildCachedSystem(),
         messages: [{ role: 'user', content: `Write a complete tender answer for this question on behalf of Eurox / Future Garments Ltd.
 
-MANDATORY RULES:
-1. Write at least 3-4 sentences of REAL substantive content using the company facts provided. Do NOT skip straight to ACTION NEEDED.
-2. Use everything the certifications IMPLY — ISO 9001 implies documented processes, audits, KPIs; ISO 45001 implies H&S procedures, risk assessments, incident reporting; Cyber Essentials implies firewalls, patching, access controls, anti-malware; ISO 14001 implies environmental monitoring, waste management, reduction targets.
-3. Only add ONE ACTION NEEDED at the very END, and only for one genuinely unknown specific number or name (e.g. an exact staff count, a specific software product name). 
-4. If you can answer 90% of the question from the facts provided, do so fully and only flag the remaining 10%.
-5. NEVER write only an ACTION NEEDED with no real answer. NEVER write more than one ACTION NEEDED per question.
-6. Plain British English. No bullet points unless the question specifically asks for a list. No AI clichés.
+MANDATORY RULES — READ CAREFULLY:
+1. Write a FULL answer of at least 4-5 sentences using the company facts and certification implications. NEVER start with or lead with ACTION NEEDED.
+2. Cyber Essentials certification means you CAN confidently state ALL of these without asking anyone: boundary firewalls are in place and configured, all devices run up-to-date anti-malware software, software patches are applied within 14 days, user access follows least-privilege principles with regular access reviews, all devices are securely configured with unnecessary services disabled, multi-factor authentication is used for remote access and cloud services, and staff receive cyber security awareness training. State these FACTS confidently — they are verified by the certification.
+3. ISO 9001 means: documented quality procedures exist, internal audits are conducted, management reviews happen annually, corrective actions are tracked, and there is full product traceability.
+4. ISO 45001 means: written H&S policy exists, risk assessments are conducted, incidents are recorded and investigated, H&S training is provided to all staff, and there is a named H&S responsible person.
+5. ISO 14001 means: environmental policy exists, energy and waste are monitored, legal compliance is tracked, and environmental targets are set annually.
+6. GDPR compliance means: privacy notices exist, a data register is maintained, breach procedures are in place, data is encrypted in transit and at rest, and access to personal data is restricted.
+7. ACTION NEEDED should ONLY appear when you need a genuinely specific unknown: an exact named software product (e.g. "which anti-virus software specifically"), a precise number that varies (e.g. exact RIDDOR incident count last year), or a named individual's specific qualification. 
+8. DO NOT use ACTION NEEDED for general policy questions, process questions, or anything covered by the certifications. The certifications prove those controls exist.
+9. Maximum ONE ACTION NEEDED per answer, at the very end only.
+10. If in doubt — answer it. A confident answer based on certifications is better than an unnecessary flag.
 
 Question: "${qText}"` }]
       }, 3, 2000);
