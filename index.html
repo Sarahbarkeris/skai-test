@@ -573,7 +573,8 @@
       <div style="font-size:22px;font-weight:800;color:var(--text);margin-bottom:4px;">Good to see you 👋</div>
       <div style="font-size:13px;color:var(--muted);">TenderWorks · AI-powered tender and quote platform by Southkey.io</div>
     </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <button onclick="resetEverything()" style="background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:8px 14px;font-size:11px;font-weight:700;cursor:pointer;" title="Clear all saved data and start fresh">🗑 Reset App</button>
       <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 16px;text-align:center;min-width:80px;">
         <div style="font-size:20px;font-weight:800;color:#7c3aed;" id="home-tender-count">—</div>
         <div style="font-size:11px;color:var(--muted);">Tenders</div>
@@ -6526,6 +6527,13 @@ function exportFullTender() {
   a.click();
   closeModal('modal-action-digest');
   showVaultToast('Exported ✓');
+}
+
+function resetEverything() {
+  if (!confirm('This will clear ALL saved tenders, quotes and settings. The app will restart fresh.\n\nAre you sure?')) return;
+  try { localStorage.clear(); } catch(e) {}
+  showVaultToast('Clearing data...');
+  setTimeout(() => location.reload(), 500);
 }
 
 function initWorkspace() {
