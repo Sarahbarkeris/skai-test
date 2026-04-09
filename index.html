@@ -9,8 +9,8 @@
 
   :root {
     --navy: #0a1628;
-    --navy2: #152b24;
-    --blue: #2dd4a0;
+    --navy2: #112240;
+    --blue: #1a56db;
     --blue-light: #3b82f6;
     --accent: #f59e0b;
     --accent2: #10b981;
@@ -1287,9 +1287,9 @@ Tel: [INSERT phone] | Email: [INSERT email] | Web: eurox.co.uk</textarea>
       <div style="margin-bottom:14px;">
         <label>Primary Brand Colour</label>
         <div style="display:flex;align-items:center;gap:10px;margin-top:6px;">
-          <input type="color" id="brand-primary" value="#2dd4a0" style="width:48px;height:36px;border:none;border-radius:6px;cursor:pointer;background:none;">
-          <input type="text" id="brand-primary-hex" value="#2dd4a0" style="width:100px;" oninput="document.getElementById('brand-primary').value=this.value">
-          <div id="brand-primary-preview" style="flex:1;height:36px;border-radius:6px;background:#2dd4a0;"></div>
+          <input type="color" id="brand-primary" value="#1a56db" style="width:48px;height:36px;border:none;border-radius:6px;cursor:pointer;background:none;">
+          <input type="text" id="brand-primary-hex" value="#1a56db" style="width:100px;" oninput="document.getElementById('brand-primary').value=this.value">
+          <div id="brand-primary-preview" style="flex:1;height:36px;border-radius:6px;background:#1a56db;"></div>
         </div>
       </div>
 
@@ -1321,7 +1321,7 @@ Tel: [INSERT phone] | Email: [INSERT email] | Web: eurox.co.uk</textarea>
       <div style="margin-top:16px;">
         <div style="font-size:11px;font-weight:700;color:var(--accent2);text-transform:uppercase;margin-bottom:8px;">Preview</div>
         <div id="brand-cover-preview" style="border-radius:10px;overflow:hidden;border:1px solid var(--border);">
-          <div id="brand-preview-header" style="background:#2dd4a0;padding:16px 20px;display:flex;align-items:center;gap:16px;">
+          <div id="brand-preview-header" style="background:#1a56db;padding:16px 20px;display:flex;align-items:center;gap:16px;">
             <div id="brand-preview-logo" style="background:rgba(255,255,255,0.2);border-radius:6px;padding:6px 12px;font-weight:800;color:white;font-size:14px;font-family:'Syne',sans-serif;">EUROX</div>
             <div>
               <div style="color:white;font-weight:700;font-size:13px;" id="brand-preview-name">Eurox — Future Garments Ltd</div>
@@ -1332,7 +1332,7 @@ Tel: [INSERT phone] | Email: [INSERT email] | Web: eurox.co.uk</textarea>
             <div style="font-size:11px;color:#666;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">TENDER SUBMISSION</div>
             <div style="font-size:15px;font-weight:800;color:#111;margin-bottom:4px;">Client Name — Tender Reference</div>
             <div style="font-size:11px;color:#888;">Prepared: ${new Date().toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric'})}</div>
-            <div id="brand-preview-footer" style="margin-top:10px;padding-top:8px;border-top:2px solid #2dd4a0;font-size:10px;color:#999;">Confidential — Prepared by Eurox / Future Garments Ltd</div>
+            <div id="brand-preview-footer" style="margin-top:10px;padding-top:8px;border-top:2px solid #1a56db;font-size:10px;color:#999;">Confidential — Prepared by Eurox / Future Garments Ltd</div>
           </div>
         </div>
       </div>
@@ -6584,484 +6584,13 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 
 <!-- ============================================================
-SOUTHKEY PATCH v3.0 — Smart preview: tender vs quote mode,
-pack pricing, remove AI footer
-Add just before </body>, after all previous patches
-============================================================ -->
-
-<script>
-// ═══ PACK SIZE DETECTION ══════════════════════════════════════════════════════
-function detectPackSize(description) {
-if (!description) return null;
-const d = description.toLowerCase();
-const patterns = [
-{ regex: /pack(?:age)? of (\d+)/i, label: 'pack' },
-{ regex: /box(?:es)? of (\d+)/i, label: 'box' },
-{ regex: /\((\d+)\s*(?:per pack|per box|pk|pack)\)/i, label: 'pack' },
-{ regex: /(\d+)\s*(?:per pack|per box|per bag)/i, label: 'pack' },
-{ regex: /pair/i, label: 'pair', qty: 2 },
-{ regex: /twin pack/i, label: 'twin pack', qty: 2 },
-{ regex: /\bx(\d+)\b/i, label: 'pack' },
-{ regex: /\b(\d+)\s*pk\b/i, label: 'pack' },
-];
-for (const p of patterns) {
-const m = description.match(p.regex);
-if (m) {
-const qty = p.qty || parseInt(m[1]);
-if (qty > 1) return { qty, label: p.label };
-}
-}
-return null;
-}
-
-// ═══ DETECT TENDER VS QUOTE MODE ═════════════════════════════════════════════
-function isTenderMode() {
-return !!(window._quoteFromTender ||
-document.getElementById('quote-tender-ref')?.value ||
-window.currentTender?.type === 'ITT');
-}
-
-// ═══ PATCH THE EXISTING showCustomerQuotePreview FUNCTION ════════════════════
-const __origCustomerPreview = window.showCustomerQuotePreview;
-window.showCustomerQuotePreview = function() {
-skSmartQuotePreview();
-};
-
-setTimeout(() => {
-document.querySelectorAll('button').forEach(btn => {
-if (btn.textContent?.includes('Preview Quote') ||
-btn.textContent?.includes('Preview & Export') ||
-btn.onclick?.toString()?.includes('CustomerQuote')) {
-btn.onclick = skSmartQuotePreview;
-}
-});
-}, 1200);
-
-// ═══ SMART QUOTE PREVIEW ══════════════════════════════════════════════════════
-function skSmartQuotePreview() {
-const lines = window.quoteLines || [];
-if (!lines.length) {
-if (typeof showVaultToast === 'function') showVaultToast('Add products to the quote first');
-return;
-}
-
-const tenderMode = isTenderMode();
-const b = {
-company: document.getElementById('brand-company-name')?.value || 'Eurox / Future Garments Ltd',
-tagline: document.getElementById('brand-tagline')?.value || 'Safety & Workwear Solutions — Since 1988',
-contact: document.getElementById('brand-contact')?.value || 'Aqua House, Buttress Way, Smethwick, West Midlands B66 3DL',
-color: '#0d9e6e',
-};
-const q = {
-client: document.getElementById('quote-client')?.value || '',
-ref: document.getElementById('quote-ref')?.value || '',
-date: document.getElementById('quote-date')?.value || new Date().toLocaleDateString('en-GB'),
-valid: document.getElementById('quote-valid')?.value || '',
-};
-
-const totalSell = lines.reduce((s,l) => s+(parseFloat(l.sell||0)*parseInt(l.qty||1)), 0);
-const vat = totalSell * 0.2;
-const dateFormatted = new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
-
-const tableRows = lines.map((l, i) => {
-const sell = parseFloat(l.sell||0);
-const qty = parseInt(l.qty||1);
-const lineTotal = sell * qty;
-const pack = detectPackSize(l.description || l.name || '');
-const packNote = pack ? `<div style="font-size:10px;color:#0d9e6e;font-weight:600;margin-top:2px;">
-Sold in ${pack.label}s of ${pack.qty} &nbsp;·&nbsp; Unit price: £${sell.toFixed(2)} &nbsp;·&nbsp; ${pack.label[0].toUpperCase()+pack.label.slice(1)} price: £${(sell*pack.qty).toFixed(2)}
-</div>` : '';
-
-if (tenderMode) {
-return `<tr style="border-bottom:1px solid #e5e7eb;">
-<td style="padding:10px 8px;font-size:12px;color:#6b7280;width:36px;">${i+1}</td>
-<td style="padding:10px 8px;">
-<div style="font-weight:600;font-size:13px;color:#111827;">${l.description||l.name||''}</div>
-${l.code?`<div style="font-size:11px;color:#9ca3af;">Ref: ${l.code}</div>`:''}
-${l.std?`<div style="font-size:11px;color:#0d9e6e;font-weight:600;">${l.std}</div>`:''}
-${l.spec?`<div style="font-size:11px;color:#6b7280;">${l.spec}</div>`:''}
-${packNote}
-</td>
-<td style="padding:10px 8px;text-align:center;font-size:13px;font-weight:600;width:60px;">${qty}</td>
-<td style="padding:10px 8px;text-align:right;font-size:13px;font-weight:700;width:100px;">£${sell.toFixed(2)}</td>
-</tr>`;
-} else {
-return `<tr style="border-bottom:1px solid #e5e7eb;">
-<td style="padding:10px 8px;font-size:12px;color:#6b7280;width:36px;">${i+1}</td>
-<td style="padding:10px 8px;">
-<div style="font-weight:600;font-size:13px;color:#111827;">${l.description||l.name||''}</div>
-${l.code?`<div style="font-size:11px;color:#9ca3af;">Ref: ${l.code}</div>`:''}
-${l.std?`<div style="font-size:11px;color:#0d9e6e;font-weight:600;">${l.std}</div>`:''}
-${l.spec?`<div style="font-size:11px;color:#6b7280;">${l.spec}</div>`:''}
-${packNote}
-</td>
-<td style="padding:10px 8px;text-align:center;font-size:13px;font-weight:600;width:60px;">${qty}</td>
-<td style="padding:10px 8px;text-align:center;font-size:12px;color:#6b7280;width:90px;">${l.lead||'—'}</td>
-<td style="padding:10px 8px;text-align:right;font-size:13px;font-weight:700;width:90px;">£${sell.toFixed(2)}</td>
-<td style="padding:10px 8px;text-align:right;font-size:13px;font-weight:700;color:#0d9e6e;width:100px;">£${lineTotal.toFixed(2)}</td>
-</tr>`;
-}
-}).join('');
-
-const totalsHTML = tenderMode ? '' : `
-<div style="background:#f0fdf4;border-radius:8px;padding:16px 20px;margin-top:8px;">
-<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#374151;">
-<span>Subtotal (ex VAT)</span><span>£${totalSell.toFixed(2)}</span>
-</div>
-<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#374151;">
-<span>VAT (20%)</span><span>£${vat.toFixed(2)}</span>
-</div>
-<div style="display:flex;justify-content:space-between;font-size:16px;font-weight:800;color:#0a1f18;
-border-top:1px solid #d1fae5;padding-top:8px;margin-top:4px;">
-<span>Total inc. VAT</span>
-<span style="color:#0d9e6e;">£${(totalSell+vat).toFixed(2)}</span>
-</div>
-</div>`;
-
-const headerMeta = tenderMode ? `
-<div class="quote-label">PRICE SCHEDULE</div>
-<div class="meta">
-${q.client?`<div><strong>Tender:</strong> ${q.client}</div>`:''}
-${q.ref?`<div><strong>Ref:</strong> ${q.ref}</div>`:''}
-<div><strong>Date:</strong> ${q.date||dateFormatted}</div>
-<div style="margin-top:4px;font-size:11px;color:#dc2626;font-weight:600;">Commercial in confidence</div>
-</div>` : `
-<div class="quote-label">QUOTE</div>
-<div class="meta">
-${q.client?`<div><strong>For:</strong> ${q.client}</div>`:''}
-${q.ref?`<div><strong>Ref:</strong> ${q.ref}</div>`:''}
-<div><strong>Date:</strong> ${q.date||dateFormatted}</div>
-${q.valid?`<div><strong>Valid until:</strong> ${q.valid}</div>`:''}
-</div>`;
-
-const tableHeaders = tenderMode ? `
-<th style="width:36px;">#</th>
-<th>Product Description</th>
-<th style="width:60px;text-align:center;">Qty</th>
-<th style="width:100px;text-align:right;">Unit Price (£)</th>` : `
-<th style="width:36px;">#</th>
-<th>Product Description</th>
-<th style="width:60px;text-align:center;">Qty</th>
-<th style="width:90px;text-align:center;">Lead Time</th>
-<th style="width:90px;text-align:right;">Unit Price</th>
-<th style="width:100px;text-align:right;">Line Total</th>`;
-
-const termsHTML = tenderMode ?
-`<p style="font-size:11px;color:#6b7280;margin-top:16px;line-height:1.6;">
-All prices are in GBP and exclude VAT. CE/UKCA marked to relevant EN standards.
-Prices valid 30 days from quote date. Eurox is a trading division of Future Garments Ltd, registered in England & Wales.
-</p>` :
-`<p style="font-size:11px;color:#6b7280;margin-top:16px;line-height:1.6;background:#f9fafb;padding:12px;border-radius:6px;">
-Terms & Conditions: All prices in GBP. Payment: 30 days net from invoice.
-Delivery: 3-5 working days stock items, 10-14 working days bespoke/branded.
-All PPE is CE/UKCA marked to relevant EN standards. Prices valid 30 days from quote date.
-Eurox is a trading division of Future Garments Ltd, registered in England & Wales.
-</p>`;
-
-const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-<title>${tenderMode?'Price Schedule':'Quote'} — ${b.company}</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box;}
-body{font-family:Arial,sans-serif;color:#111827;background:white;}
-.page{max-width:820px;margin:0 auto;padding:40px;}
-.top-bar{background:#0a1f18;color:white;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;}
-.top-bar-left{font-size:12px;font-weight:600;}
-.top-bar-right{display:flex;gap:10px;}
-.top-btn{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:white;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;}
-.top-btn.green{background:#0d9e6e;border-color:#0d9e6e;}
-.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:20px;border-bottom:3px solid #0d9e6e;}
-.co-name{font-size:20px;font-weight:800;color:#0a1f18;}
-.co-tag{font-size:12px;color:#6b7280;margin-top:2px;}
-.co-contact{font-size:11px;color:#9ca3af;margin-top:4px;line-height:1.5;}
-.quote-label{font-size:28px;font-weight:800;color:#0d9e6e;letter-spacing:-0.5px;}
-.meta{font-size:12px;color:#6b7280;margin-top:4px;line-height:1.7;text-align:right;}
-table{width:100%;border-collapse:collapse;margin:16px 0;}
-thead tr{background:#f0fdf4;border-bottom:2px solid #0d9e6e;}
-th{padding:10px 8px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.4px;color:#0d9e6e;text-align:left;}
-tbody tr{border-bottom:1px solid #f3f4f6;}
-tbody tr:hover{background:#fafafa;}
-.footer-bar{margin-top:24px;padding-top:12px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;display:flex;justify-content:space-between;}
-@media print{.top-bar{display:none!important;}.page{padding:20px;}}
-</style></head><body>
-<div class="top-bar">
-<div class="top-bar-left">
-${tenderMode?'Price Schedule — tender response format':'Customer Quote — client-facing view'}
-&nbsp;·&nbsp;<span style="color:#fbbf24;">Cost prices and margins are hidden</span>
-</div>
-<div class="top-bar-right">
-<button class="top-btn green" onclick="window.print()">Print / Save PDF</button>
-<button class="top-btn" onclick="window.close()">Close</button>
-</div>
-</div>
-<div class="page">
-<div class="header">
-<div>
-<div class="co-name">${b.company}</div>
-<div class="co-tag">${b.tagline}</div>
-<div class="co-contact">${b.contact}</div>
-</div>
-<div style="text-align:right;">${headerMeta}</div>
-</div>
-<table>
-<thead><tr>${tableHeaders}</tr></thead>
-<tbody>${tableRows}</tbody>
-</table>
-${totalsHTML}
-${termsHTML}
-<div class="footer-bar">
-<span>${b.company} &nbsp;·&nbsp; ISO 9001:2015 Certified &nbsp;·&nbsp; BSIF Registered</span>
-<span>${dateFormatted}</span>
-</div>
-</div>
-</body></html>`;
-
-const w = window.open('', '_blank', 'width=900,height=750,scrollbars=yes');
-if (w) { w.document.write(html); w.document.close(); }
-}
-</script>
-</script>
-</script>
-<!-- ============================================================
-SOUTHKEY PATCH v3.0 — Smart preview: tender vs quote mode,
-pack pricing, remove AI footer
-Add just before </body>, after all previous patches
-============================================================ -->
-
-<script>
-// ═══ PACK SIZE DETECTION ══════════════════════════════════════════════════════
-function detectPackSize(description) {
-if (!description) return null;
-const d = description.toLowerCase();
-const patterns = [
-{ regex: /pack(?:age)? of (\d+)/i, label: 'pack' },
-{ regex: /box(?:es)? of (\d+)/i, label: 'box' },
-{ regex: /\((\d+)\s*(?:per pack|per box|pk|pack)\)/i, label: 'pack' },
-{ regex: /(\d+)\s*(?:per pack|per box|per bag)/i, label: 'pack' },
-{ regex: /pair/i, label: 'pair', qty: 2 },
-{ regex: /twin pack/i, label: 'twin pack', qty: 2 },
-{ regex: /\bx(\d+)\b/i, label: 'pack' },
-{ regex: /\b(\d+)\s*pk\b/i, label: 'pack' },
-];
-for (const p of patterns) {
-const m = description.match(p.regex);
-if (m) {
-const qty = p.qty || parseInt(m[1]);
-if (qty > 1) return { qty, label: p.label };
-}
-}
-return null;
-}
-
-// ═══ DETECT TENDER VS QUOTE MODE ═════════════════════════════════════════════
-function isTenderMode() {
-return !!(window._quoteFromTender ||
-document.getElementById('quote-tender-ref')?.value ||
-window.currentTender?.type === 'ITT');
-}
-
-// ═══ PATCH THE EXISTING showCustomerQuotePreview FUNCTION ════════════════════
-const __origCustomerPreview = window.showCustomerQuotePreview;
-window.showCustomerQuotePreview = function() {
-skSmartQuotePreview();
-};
-
-setTimeout(() => {
-document.querySelectorAll('button').forEach(btn => {
-if (btn.textContent?.includes('Preview Quote') ||
-btn.textContent?.includes('Preview & Export') ||
-btn.onclick?.toString()?.includes('CustomerQuote')) {
-btn.onclick = skSmartQuotePreview;
-}
-});
-}, 1200);
-
-// ═══ SMART QUOTE PREVIEW ══════════════════════════════════════════════════════
-function skSmartQuotePreview() {
-const lines = window.quoteLines || [];
-if (!lines.length) {
-if (typeof showVaultToast === 'function') showVaultToast('Add products to the quote first');
-return;
-}
-
-const tenderMode = isTenderMode();
-const b = {
-company: document.getElementById('brand-company-name')?.value || 'Eurox / Future Garments Ltd',
-tagline: document.getElementById('brand-tagline')?.value || 'Safety & Workwear Solutions — Since 1988',
-contact: document.getElementById('brand-contact')?.value || 'Aqua House, Buttress Way, Smethwick, West Midlands B66 3DL',
-color: '#0d9e6e',
-};
-const q = {
-client: document.getElementById('quote-client')?.value || '',
-ref: document.getElementById('quote-ref')?.value || '',
-date: document.getElementById('quote-date')?.value || new Date().toLocaleDateString('en-GB'),
-valid: document.getElementById('quote-valid')?.value || '',
-};
-
-const totalSell = lines.reduce((s,l) => s+(parseFloat(l.sell||0)*parseInt(l.qty||1)), 0);
-const vat = totalSell * 0.2;
-const dateFormatted = new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
-
-const tableRows = lines.map((l, i) => {
-const sell = parseFloat(l.sell||0);
-const qty = parseInt(l.qty||1);
-const lineTotal = sell * qty;
-const pack = detectPackSize(l.description || l.name || '');
-const packNote = pack ? `<div style="font-size:10px;color:#0d9e6e;font-weight:600;margin-top:2px;">
-Sold in ${pack.label}s of ${pack.qty} &nbsp;·&nbsp; Unit price: £${sell.toFixed(2)} &nbsp;·&nbsp; ${pack.label[0].toUpperCase()+pack.label.slice(1)} price: £${(sell*pack.qty).toFixed(2)}
-</div>` : '';
-
-if (tenderMode) {
-return `<tr style="border-bottom:1px solid #e5e7eb;">
-<td style="padding:10px 8px;font-size:12px;color:#6b7280;width:36px;">${i+1}</td>
-<td style="padding:10px 8px;">
-<div style="font-weight:600;font-size:13px;color:#111827;">${l.description||l.name||''}</div>
-${l.code?`<div style="font-size:11px;color:#9ca3af;">Ref: ${l.code}</div>`:''}
-${l.std?`<div style="font-size:11px;color:#0d9e6e;font-weight:600;">${l.std}</div>`:''}
-${l.spec?`<div style="font-size:11px;color:#6b7280;">${l.spec}</div>`:''}
-${packNote}
-</td>
-<td style="padding:10px 8px;text-align:center;font-size:13px;font-weight:600;width:60px;">${qty}</td>
-<td style="padding:10px 8px;text-align:right;font-size:13px;font-weight:700;width:100px;">£${sell.toFixed(2)}</td>
-</tr>`;
-} else {
-return `<tr style="border-bottom:1px solid #e5e7eb;">
-<td style="padding:10px 8px;font-size:12px;color:#6b7280;width:36px;">${i+1}</td>
-<td style="padding:10px 8px;">
-<div style="font-weight:600;font-size:13px;color:#111827;">${l.description||l.name||''}</div>
-${l.code?`<div style="font-size:11px;color:#9ca3af;">Ref: ${l.code}</div>`:''}
-${l.std?`<div style="font-size:11px;color:#0d9e6e;font-weight:600;">${l.std}</div>`:''}
-${l.spec?`<div style="font-size:11px;color:#6b7280;">${l.spec}</div>`:''}
-${packNote}
-</td>
-<td style="padding:10px 8px;text-align:center;font-size:13px;font-weight:600;width:60px;">${qty}</td>
-<td style="padding:10px 8px;text-align:center;font-size:12px;color:#6b7280;width:90px;">${l.lead||'—'}</td>
-<td style="padding:10px 8px;text-align:right;font-size:13px;font-weight:700;width:90px;">£${sell.toFixed(2)}</td>
-<td style="padding:10px 8px;text-align:right;font-size:13px;font-weight:700;color:#0d9e6e;width:100px;">£${lineTotal.toFixed(2)}</td>
-</tr>`;
-}
-}).join('');
-
-const totalsHTML = tenderMode ? '' : `
-<div style="background:#f0fdf4;border-radius:8px;padding:16px 20px;margin-top:8px;">
-<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#374151;">
-<span>Subtotal (ex VAT)</span><span>£${totalSell.toFixed(2)}</span>
-</div>
-<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#374151;">
-<span>VAT (20%)</span><span>£${vat.toFixed(2)}</span>
-</div>
-<div style="display:flex;justify-content:space-between;font-size:16px;font-weight:800;color:#0a1f18;
-border-top:1px solid #d1fae5;padding-top:8px;margin-top:4px;">
-<span>Total inc. VAT</span>
-<span style="color:#0d9e6e;">£${(totalSell+vat).toFixed(2)}</span>
-</div>
-</div>`;
-
-const headerMeta = tenderMode ? `
-<div class="quote-label">PRICE SCHEDULE</div>
-<div class="meta">
-${q.client?`<div><strong>Tender:</strong> ${q.client}</div>`:''}
-${q.ref?`<div><strong>Ref:</strong> ${q.ref}</div>`:''}
-<div><strong>Date:</strong> ${q.date||dateFormatted}</div>
-<div style="margin-top:4px;font-size:11px;color:#dc2626;font-weight:600;">Commercial in confidence</div>
-</div>` : `
-<div class="quote-label">QUOTE</div>
-<div class="meta">
-${q.client?`<div><strong>For:</strong> ${q.client}</div>`:''}
-${q.ref?`<div><strong>Ref:</strong> ${q.ref}</div>`:''}
-<div><strong>Date:</strong> ${q.date||dateFormatted}</div>
-${q.valid?`<div><strong>Valid until:</strong> ${q.valid}</div>`:''}
-</div>`;
-
-const tableHeaders = tenderMode ? `
-<th style="width:36px;">#</th>
-<th>Product Description</th>
-<th style="width:60px;text-align:center;">Qty</th>
-<th style="width:100px;text-align:right;">Unit Price (£)</th>` : `
-<th style="width:36px;">#</th>
-<th>Product Description</th>
-<th style="width:60px;text-align:center;">Qty</th>
-<th style="width:90px;text-align:center;">Lead Time</th>
-<th style="width:90px;text-align:right;">Unit Price</th>
-<th style="width:100px;text-align:right;">Line Total</th>`;
-
-const termsHTML = tenderMode ?
-`<p style="font-size:11px;color:#6b7280;margin-top:16px;line-height:1.6;">
-All prices are in GBP and exclude VAT. CE/UKCA marked to relevant EN standards.
-Prices valid 30 days from quote date. Eurox is a trading division of Future Garments Ltd, registered in England & Wales.
-</p>` :
-`<p style="font-size:11px;color:#6b7280;margin-top:16px;line-height:1.6;background:#f9fafb;padding:12px;border-radius:6px;">
-Terms & Conditions: All prices in GBP. Payment: 30 days net from invoice.
-Delivery: 3-5 working days stock items, 10-14 working days bespoke/branded.
-All PPE is CE/UKCA marked to relevant EN standards. Prices valid 30 days from quote date.
-Eurox is a trading division of Future Garments Ltd, registered in England & Wales.
-</p>`;
-
-const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-<title>${tenderMode?'Price Schedule':'Quote'} — ${b.company}</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box;}
-body{font-family:Arial,sans-serif;color:#111827;background:white;}
-.page{max-width:820px;margin:0 auto;padding:40px;}
-.top-bar{background:#0a1f18;color:white;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;}
-.top-bar-left{font-size:12px;font-weight:600;}
-.top-bar-right{display:flex;gap:10px;}
-.top-btn{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:white;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;}
-.top-btn.green{background:#0d9e6e;border-color:#0d9e6e;}
-.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:20px;border-bottom:3px solid #0d9e6e;}
-.co-name{font-size:20px;font-weight:800;color:#0a1f18;}
-.co-tag{font-size:12px;color:#6b7280;margin-top:2px;}
-.co-contact{font-size:11px;color:#9ca3af;margin-top:4px;line-height:1.5;}
-.quote-label{font-size:28px;font-weight:800;color:#0d9e6e;letter-spacing:-0.5px;}
-.meta{font-size:12px;color:#6b7280;margin-top:4px;line-height:1.7;text-align:right;}
-table{width:100%;border-collapse:collapse;margin:16px 0;}
-thead tr{background:#f0fdf4;border-bottom:2px solid #0d9e6e;}
-th{padding:10px 8px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.4px;color:#0d9e6e;text-align:left;}
-tbody tr{border-bottom:1px solid #f3f4f6;}
-tbody tr:hover{background:#fafafa;}
-.footer-bar{margin-top:24px;padding-top:12px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;display:flex;justify-content:space-between;}
-@media print{.top-bar{display:none!important;}.page{padding:20px;}}
-</style></head><body>
-<div class="top-bar">
-<div class="top-bar-left">
-${tenderMode?'Price Schedule — tender response format':'Customer Quote — client-facing view'}
-&nbsp;·&nbsp;<span style="color:#fbbf24;">Cost prices and margins are hidden</span>
-</div>
-<div class="top-bar-right">
-<button class="top-btn green" onclick="window.print()">Print / Save PDF</button>
-<button class="top-btn" onclick="window.close()">Close</button>
-</div>
-</div>
-<div class="page">
-<div class="header">
-<div>
-<div class="co-name">${b.company}</div>
-<div class="co-tag">${b.tagline}</div>
-<div class="co-contact">${b.contact}</div>
-</div>
-<div style="text-align:right;">${headerMeta}</div>
-</div>
-<table>
-<thead><tr>${tableHeaders}</tr></thead>
-<tbody>${tableRows}</tbody>
-</table>
-${totalsHTML}
-${termsHTML}
-<div class="footer-bar">
-<span>${b.company} &nbsp;·&nbsp; ISO 9001:2015 Certified &nbsp;·&nbsp; BSIF Registered</span>
-<span>${dateFormatted}</span>
-</div>
-</div>
-</body></html>`;
-
-const w = window.open('', '_blank', 'width=900,height=750,scrollbars=yes');
-if (w) { w.document.write(html); w.document.close(); }
-}
-<!-- ============================================================
-     SOUTHKEY TENDERWORKS — ALL PATCHES COMBINED v3.1
-     Paste at line 7059, replacing everything from here to end
+     SOUTHKEY PATCH v2.2
+     DELETE everything from the previous patch comment to the end
+     and replace with this entire block
      ============================================================ -->
 
 <style>
+/* ── SOUTHKEY TEAL REBRAND ── */
 :root {
   --navy: #0d1f1a !important;
   --navy2: #152b24 !important;
@@ -7088,294 +6617,156 @@ if (w) { w.document.write(html); w.document.close(); }
 }
 body::before { background: radial-gradient(circle, rgba(45,212,160,0.08) 0%, transparent 70%) !important; }
 [data-theme="light"] body { background: #edfaf5 !important; }
-[data-theme="light"] header { background: rgba(237,250,245,0.97) !important; }
+[data-theme="light"] header { background: rgba(237,250,245,0.97) !important; border-bottom-color: rgba(13,158,110,0.15) !important; }
+[data-theme="light"] nav { border-bottom-color: rgba(13,158,110,0.15) !important; }
 .nav-tab.active { color: #2dd4a0 !important; border-bottom-color: #2dd4a0 !important; }
+[data-theme="light"] .nav-tab { color: #2d6b52 !important; }
+[data-theme="light"] .nav-tab.active { color: #0d9e6e !important; border-bottom-color: #0d9e6e !important; }
 .header-badge { background: rgba(45,212,160,0.15) !important; border-color: rgba(45,212,160,0.4) !important; color: #2dd4a0 !important; }
 .company-dot { background: #2dd4a0 !important; }
+.badge-pqq { background: rgba(45,212,160,0.15) !important; color: #2dd4a0 !important; border-color: rgba(45,212,160,0.3) !important; }
+.badge-itt { background: rgba(0,150,180,0.15) !important; color: #38d4e8 !important; border-color: rgba(0,150,180,0.3) !important; }
 .cert-chip { background: rgba(45,212,160,0.1) !important; border-color: rgba(45,212,160,0.25) !important; color: #2dd4a0 !important; }
+.info-box { background: rgba(45,212,160,0.06) !important; border-color: rgba(45,212,160,0.2) !important; color: #2dd4a0 !important; }
+.remix-box { background: rgba(45,212,160,0.05) !important; border-color: rgba(45,212,160,0.15) !important; }
+.remix-label { color: #2dd4a0 !important; }
 .q-num { background: rgba(45,212,160,0.15) !important; color: #2dd4a0 !important; }
+.vault-icon { background: rgba(45,212,160,0.12) !important; }
+.alert-info { background: rgba(45,212,160,0.08) !important; border-color: rgba(45,212,160,0.2) !important; }
+.quote-total { background: rgba(45,212,160,0.08) !important; border-color: rgba(45,212,160,0.2) !important; }
 ::-webkit-scrollbar-thumb { background: rgba(45,212,160,0.25) !important; }
-[data-theme="light"] input, [data-theme="light"] select, [data-theme="light"] textarea { background: rgba(13,158,110,0.05) !important; color: #0a1f18 !important; }
-[data-theme="light"] .card { background: rgba(255,255,255,0.95) !important; }
+[data-theme="light"] input, [data-theme="light"] select, [data-theme="light"] textarea {
+  background: rgba(13,158,110,0.05) !important; color: #0a1f18 !important; border-color: rgba(13,158,110,0.2) !important;
+}
+[data-theme="light"] .card { background: rgba(255,255,255,0.95) !important; border-color: rgba(13,158,110,0.12) !important; }
 [data-theme="light"] .modal { background: #d4f5e9 !important; }
+[data-theme="light"] .tender-row { background: rgba(255,255,255,0.8) !important; border-color: rgba(13,158,110,0.15) !important; }
+[data-theme="light"] .tender-row:hover { border-color: rgba(13,158,110,0.4) !important; background: rgba(13,158,110,0.05) !important; }
 [data-theme="light"] .section-header { color: #0a1f18 !important; }
-[data-theme="light"] .text-muted { color: #2d6b52 !important; }
-.chase-item{border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:10px;background:var(--card);}
-.chase-item.overdue{border-left:3px solid #ef4444;}
-.chase-item.pending{border-left:3px solid #f59e0b;}
-.chase-item.answered{border-left:3px solid #2dd4a0;}
-.chase-item.done{border-left:3px solid rgba(148,163,184,0.3);opacity:0.55;}
-.person-avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0;}
-.av-G{background:rgba(99,102,241,0.2);color:#818cf8;}
-.av-H{background:rgba(245,158,11,0.2);color:#fbbf24;}
-.av-M{background:rgba(16,185,129,0.2);color:#34d399;}
-.av-X{background:rgba(45,212,160,0.15);color:#2dd4a0;}
-.nudge-btn{background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);color:#f59e0b;border-radius:6px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;}
-.approve-btn{background:rgba(45,212,160,0.12);border:1px solid rgba(45,212,160,0.3);color:#2dd4a0;border-radius:6px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;}
-.routing-tag{font-size:10px;font-weight:700;background:rgba(45,212,160,0.1);border:1px solid rgba(45,212,160,0.2);color:#2dd4a0;border-radius:4px;padding:2px 6px;margin:2px;display:inline-block;}
-.approve-all-bar{background:rgba(45,212,160,0.06);border:1px solid rgba(45,212,160,0.2);border-radius:10px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;}
-.placeholder-flag{background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:8px;padding:8px 12px;margin:6px 0;font-size:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-.send-to-btn{background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);color:#f59e0b;border-radius:5px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer;}
-.team-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;align-items:center;gap:12px;margin-bottom:8px;}
-.team-avatar{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;flex-shrink:0;background:rgba(45,212,160,0.15);color:#2dd4a0;}
-.answer-preview{background:rgba(45,212,160,0.05);border:1px solid rgba(45,212,160,0.15);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--text);line-height:1.5;margin:8px 0;font-style:italic;}
+[data-theme="light"] .section-sub, [data-theme="light"] .text-muted { color: #2d6b52 !important; }
 </style>
 
 <script>
-const COMPASS_SVG = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="10" stroke="#2dd4a0" stroke-width="1.5"/><circle cx="11" cy="11" r="3" fill="#2dd4a0"/><path d="M11 2V5M11 17V20M2 11H5M17 11H20" stroke="#2dd4a0" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+// ── COMPASS SVG (Southkey brand icon) ────────────────────────────────────────
+const COMPASS_SVG = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="11" cy="11" r="10" stroke="#2dd4a0" stroke-width="1.5"/>
+  <circle cx="11" cy="11" r="3" fill="#2dd4a0"/>
+  <path d="M11 2V5M11 17V20M2 11H5M17 11H20" stroke="#2dd4a0" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M7 7L9.5 9.5M12.5 12.5L15 15M15 7L12.5 9.5M9.5 12.5L7 15" stroke="#2dd4a0" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
+</svg>`;
 
+const COMPASS_SVG_DARK = `<svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="11" cy="11" r="10" stroke="#0d9e6e" stroke-width="1.5"/>
+  <circle cx="11" cy="11" r="3" fill="#0d9e6e"/>
+  <path d="M11 2V5M11 17V20M2 11H5M17 11H20" stroke="#0d9e6e" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M7 7L9.5 9.5M12.5 12.5L15 15M15 7L12.5 9.5M9.5 12.5L7 15" stroke="#0d9e6e" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
+</svg>`;
+
+// ── PATCH HEADER ─────────────────────────────────────────────────────────────
 (function patchHeader() {
   const header = document.querySelector('header');
   if (!header) return;
   header.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;">
       <div style="display:flex;align-items:center;gap:8px;">
-        <div style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:rgba(45,212,160,0.12);border-radius:8px;border:1px solid rgba(45,212,160,0.25);">${COMPASS_SVG}</div>
+        <div id="header-compass" style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:rgba(45,212,160,0.12);border-radius:8px;border:1px solid rgba(45,212,160,0.25);">${COMPASS_SVG}</div>
         <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:var(--text);letter-spacing:-0.5px;">TenderWorks</div>
       </div>
       <div>
-        <div style="font-size:11px;color:var(--muted);">by Southkey.io</div>
+        <div style="font-size:11px;color:var(--muted);font-weight:400;">by Southkey.io</div>
         <div style="font-size:10px;color:var(--muted);">Tender &amp; bid platform</div>
       </div>
       <div class="header-badge">BETA</div>
     </div>
     <div class="header-right">
-      <button onclick="toggleTheme()" id="theme-toggle-btn" style="background:var(--glass);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:12px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:6px;">
+      <button onclick="toggleTheme()" id="theme-toggle-btn"
+        style="background:var(--glass);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:12px;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:6px;transition:all 0.2s;">
         <span id="theme-icon">☀️</span><span id="theme-label">Light</span>
       </button>
-      <div class="company-pill"><div class="company-dot"></div>Southkey · Beta</div>
+      <div class="company-pill">
+        <div class="company-dot"></div>
+        Southkey · Beta
+      </div>
     </div>`;
 })();
 
+// ── PATCH HOME WELCOME TEXT ───────────────────────────────────────────────────
+(function patchHomeText() {
+  document.querySelectorAll('div').forEach(el => {
+    if (el.childElementCount === 0) {
+      if (el.textContent.trim() === 'TenderWorks · AI-powered tender and quote platform by Southkey.io') {
+        el.textContent = 'Tender & bid platform · Southkey.io';
+      }
+      if (el.textContent.trim() === 'TenderWorks · AI-powered tender and quote platform by Southkey.io' ||
+          el.textContent.includes('AI-powered tender and quote platform by Southkey')) {
+        el.textContent = 'Tender & bid platform · Southkey.io';
+      }
+    }
+  });
+})();
+
+// ── THEME TOGGLE ──────────────────────────────────────────────────────────────
 function toggleTheme() {
   const isLight = document.documentElement.getAttribute('data-theme') === 'light';
   document.documentElement.setAttribute('data-theme', isLight ? '' : 'light');
   const icon = document.getElementById('theme-icon');
   const label = document.getElementById('theme-label');
+  const compass = document.getElementById('header-compass');
   if (icon) icon.textContent = isLight ? '☀️' : '🌙';
   if (label) label.textContent = isLight ? 'Light' : 'Dark';
+  if (compass) compass.innerHTML = isLight ? COMPASS_SVG : COMPASS_SVG_DARK;
   localStorage.setItem('sk-theme', isLight ? 'dark' : 'light');
 }
+
 (function initTheme() {
   if (localStorage.getItem('sk-theme') === 'light') {
     document.documentElement.setAttribute('data-theme', 'light');
     setTimeout(() => {
       const icon = document.getElementById('theme-icon');
       const label = document.getElementById('theme-label');
+      const compass = document.getElementById('header-compass');
       if (icon) icon.textContent = '🌙';
       if (label) label.textContent = 'Dark';
+      if (compass) compass.innerHTML = COMPASS_SVG_DARK;
     }, 100);
   }
 })();
 
-setTimeout(() => {
-  document.querySelectorAll('div').forEach(el => {
-    if (el.childElementCount === 0 && el.textContent?.includes('AI-powered tender and quote platform by Southkey')) {
-      el.textContent = 'Tender & bid platform · Southkey.io';
-    }
-    if (el.childElementCount === 0 && el.textContent?.trim() === 'SKAI Pricing Narrative') {
-      el.textContent = 'Pricing Statement';
-    }
-  });
-  document.querySelectorAll('button').forEach(btn => {
-    if (btn.textContent?.includes('SKAI Intelligence') && !btn.id?.includes('nav')) {
-      btn.innerHTML = btn.innerHTML.replace(/✦\s*SKAI Intelligence/g, '✦ Generate');
-    }
-  });
-}, 800);
-
+// ── FIX DELETE TENDER ────────────────────────────────────────────────────────
 window.deleteTenderFromList = function(id) {
   try {
     ['skai-tenders-v1','skai-tenders-v2'].forEach(key => {
-      const list = JSON.parse(localStorage.getItem(key)||'[]').filter(t=>t.id!==id);
+      const list = JSON.parse(localStorage.getItem(key) || '[]').filter(t => t.id !== id);
       localStorage.setItem(key, JSON.stringify(list));
     });
-    document.querySelectorAll('#home-recent-tenders > div').forEach(row => {
-      if (row.innerHTML.includes('deleteTenderFromList('+id+')')) {
-        row.style.opacity = '0';
-        row.style.transition = 'opacity 0.2s';
-        setTimeout(() => row.remove(), 200);
-      }
-    });
-    if (typeof renderTenderSidebar==='function') renderTenderSidebar();
-    if (typeof updateHomeStats==='function') updateHomeStats();
-    if (typeof showVaultToast==='function') showVaultToast('Tender deleted');
-  } catch(e) { console.error(e); }
+    if (window._activeTenderId === id) {
+      window._activeTenderId = null;
+      const es = document.getElementById('workspace-empty');
+      const as = document.getElementById('workspace-active');
+      if (es) es.style.display = 'flex';
+      if (as) as.style.display = 'none';
+      const qc = document.getElementById('questions-container');
+      if (qc) qc.innerHTML = '';
+      if (window.quoteLines) window.quoteLines = [];
+    }
+    if (typeof renderTenderSidebar === 'function') renderTenderSidebar();
+    if (typeof updateHomeStats === 'function') updateHomeStats();
+    if (typeof showVaultToast === 'function') showVaultToast('Tender deleted');
+  } catch(e) { console.error('Delete error:', e); }
 };
 
-const __SK_realOpen = window.open;
-window.open = function(url, name, features) {
-  const w = __SK_realOpen.call(this, url, name, features);
-  if (w && w.document && w.document.write) {
-    const _orig = w.document.write.bind(w.document);
-    w.document.write = function(html) {
-      if (typeof html === 'string') {
-        html = html
-          .replace(/Drafted with SKAI Intelligence[\s\S]{0,40}Human reviewed/g, '')
-          .replace(/Generated by SKAI Intelligence[^<"']*/g, '')
-          .replace(/SKAI Intelligence is thinking\.\.\./g, 'Working on it...')
-          .replace(/SKAI Intelligence is working\.\.\./g, 'Working on it...')
-          .replace(/Using your company vault and content library/g, 'Preparing your response...');
-      }
-      return _orig(html);
-    };
-  }
-  return w;
-};
-
-const CHASE_KEY = 'sk-chase-v1';
-const TEAM_INFO = {
-  'Graham':{i:'G',c:'av-G',role:'IT Manager'},
-  'Harvy': {i:'H',c:'av-H',role:'Procurement Manager'},
-  'Mark':  {i:'M',c:'av-M',role:'Sales Manager'},
-  'Polly': {i:'P',c:'av-X',role:'Internal Sales'},
-  'Finance':{i:'F',c:'av-X',role:'Finance'},
-};
-function getChase(){try{return JSON.parse(localStorage.getItem(CHASE_KEY)||'[]');}catch(e){return[];}}
-function saveChase(d){localStorage.setItem(CHASE_KEY,JSON.stringify(d));updateChaseBadge();}
-function updateChaseBadge(){
-  const n=getChase().filter(i=>i.status==='pending'||i.status==='answered').length;
-  const b=document.getElementById('chase-nav-badge');
-  if(!b)return;
-  b.textContent=n;b.style.display=n>0?'inline':'none';
-  b.style.background=getChase().some(i=>i.status==='pending'&&isChaseOverdue(i))?'#ef4444':'#f59e0b';
-  b.style.color='#0a1f18';
-}
-function isChaseOverdue(i){
-  if(!i.sentAt||i.status==='done'||i.status==='approved')return false;
-  return(new Date()-new Date(i.sentAt))/3600000>48;
-}
-function timeAgo(d){
-  if(!d)return'';const s=(new Date()-new Date(d))/1000;
-  if(s<60)return'just now';if(s<3600)return Math.floor(s/60)+'m ago';
-  if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';
-}
-function addChaseRequest(opts){
-  const items=getChase();
-  const id='ch_'+Date.now()+'_'+Math.random().toString(36).substr(2,4);
-  items.unshift({id,...opts,status:'pending',sentAt:new Date().toISOString(),answeredAt:null,approvedAt:null,nudgeCount:0,lastNudge:null,answer:'',approvedBy:'',pricingLines:opts.pricingLines||[],supplierName:opts.supplierName||''});
-  saveChase(items);return id;
-}
-function nudgeRequest(id){
-  const items=getChase(),item=items.find(i=>i.id===id);if(!item)return;
-  item.nudgeCount=(item.nudgeCount||0)+1;item.lastNudge=new Date().toISOString();
-  saveChase(items);
-  if(typeof showVaultToast==='function')showVaultToast('Nudge sent to '+(item.supplierName||item.person)+' 👋');
-  const btn=document.getElementById('nudge-'+id);
-  if(btn){btn.textContent='✓ Nudged';setTimeout(()=>{btn.textContent='👋 Nudge again';},3000);}
-}
-function approveChaseAnswer(id){
-  const items=getChase(),item=items.find(i=>i.id===id);if(!item)return;
-  item.status='approved';item.approvedAt=new Date().toISOString();item.approvedBy='Sarah';
-  saveChase(items);renderChaseTab();
-  if(typeof showVaultToast==='function')showVaultToast('✓ Approved');
-}
-function markChaseDone(id){const items=getChase(),item=items.find(i=>i.id===id);if(!item)return;item.status='done';saveChase(items);renderChaseTab();}
-function deleteChaseItem(id){saveChase(getChase().filter(i=>i.id!==id));renderChaseTab();}
-function simulateReply(id){
-  const items=getChase(),item=items.find(i=>i.id===id);if(!item)return;
-  const ans=prompt('Simulate reply:');if(!ans)return;
-  item.answer=ans;item.status='answered';item.answeredAt=new Date().toISOString();
-  saveChase(items);renderChaseTab();updateChaseBadge();
-}
-
-let _chaseFilter='all';
-function renderChaseTab(){
-  const container=document.getElementById('chase-list');if(!container)return;
-  const all=getChase();
-  const overdue=all.filter(i=>i.status==='pending'&&isChaseOverdue(i));
-  const pending=all.filter(i=>i.status==='pending'&&!isChaseOverdue(i));
-  const answered=all.filter(i=>i.status==='answered');
-  const done=all.filter(i=>i.status==='approved'||i.status==='done');
-  ['overdue','pending','answered','done'].forEach(k=>{
-    const el=document.getElementById('chase-stat-'+k);
-    if(el)el.textContent={overdue:overdue.length,pending:overdue.length+pending.length,answered:answered.length,done:done.length}[k];
-  });
-  let filtered=all;
-  if(_chaseFilter==='overdue')filtered=overdue;
-  else if(_chaseFilter==='pending')filtered=[...overdue,...pending];
-  else if(_chaseFilter==='answered')filtered=answered;
-  else if(_chaseFilter==='done')filtered=done;
-  if(!filtered.length){
-    container.innerHTML=`<div style="text-align:center;padding:48px;color:var(--muted);"><div style="font-size:40px;margin-bottom:14px;">🎉</div><div style="font-size:14px;font-weight:700;">Nothing outstanding right now</div></div>`;
-    return;
-  }
-  container.innerHTML=filtered.map(item=>{
-    const t=TEAM_INFO[item.person]||{i:(item.person||'?')[0],c:'av-X',role:''};
-    const overdueFl=isChaseOverdue(item);
-    const cls=item.status==='done'||item.status==='approved'?'done':item.status==='answered'?'answered':overdueFl?'overdue':'pending';
-    const displayName=item.supplierName||item.person;
-    const statusTxt=item.status==='approved'?'✓ Approved':item.status==='done'?'✓ Done':item.status==='answered'?'💬 Responded':overdueFl?'🔴 Overdue · '+timeAgo(item.sentAt):'⏳ Sent '+timeAgo(item.sentAt);
-    const actions=item.status==='answered'
-      ?`<button class="approve-btn" onclick="approveChaseAnswer('${item.id}')">✓ Approve</button><button onclick="deleteChaseItem('${item.id}')" style="background:none;border:none;color:rgba(239,68,68,0.5);font-size:11px;cursor:pointer;padding:4px 8px;">Remove</button>`
-      :item.status==='pending'
-      ?`<button class="nudge-btn" id="nudge-${item.id}" onclick="nudgeRequest('${item.id}')">👋 Nudge</button><button onclick="simulateReply('${item.id}')" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:10px;color:var(--muted);cursor:pointer;">⚙ Test reply</button><button onclick="markChaseDone('${item.id}')" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;padding:4px 8px;">Mark resolved</button>`
-      :`<button onclick="deleteChaseItem('${item.id}')" style="background:none;border:none;color:rgba(239,68,68,0.4);font-size:11px;cursor:pointer;">Remove</button>`;
-    return `<div class="chase-item ${cls}">
-      <div style="display:flex;align-items:flex-start;gap:12px;">
-        <div class="person-avatar ${t.c}">${displayName[0].toUpperCase()}</div>
-        <div style="flex:1;min-width:0;">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:3px;">
-            <div><span style="font-size:13px;font-weight:700;color:var(--text);">${displayName}</span><span style="font-size:11px;color:var(--muted);margin-left:6px;">${t.role}</span></div>
-            <div style="font-size:11px;color:var(--muted);flex-shrink:0;">${statusTxt}</div>
-          </div>
-          <div style="font-size:12px;color:var(--text);margin-bottom:4px;">${item.question}</div>
-          <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">📋 ${item.tenderName||'General'}</div>
-          ${item.answer?`<div class="answer-preview">"${item.answer}"</div>`:''}
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">${actions}</div>
-        </div>
-      </div>
-    </div>`;
-  }).join('');
-  updateChaseBadge();
-}
-
-(function buildChaseSection(){
-  const nav=document.querySelector('nav');
-  if(nav&&!document.getElementById('nav-chase')){
-    const tab=document.createElement('button');
-    tab.className='nav-tab';tab.id='nav-chase';
-    tab.innerHTML=`Chase <span id="chase-nav-badge" style="display:none;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:800;margin-left:4px;color:#0a1f18;">0</span>`;
-    tab.onclick=()=>showSection('chase');
-    const proc=document.getElementById('proc-nav-tab');
-    if(proc)nav.insertBefore(tab,proc);else nav.appendChild(tab);
-  }
-  if(!document.getElementById('section-chase')){
-    const section=document.createElement('div');
-    section.className='section';section.id='section-chase';
-    section.innerHTML=`
-      <div class="flex-between mb-20">
-        <div><div class="section-header">📬 Chase</div>
-        <div class="section-sub">Everything waiting on someone — always up to date</div></div>
-        <button onclick="renderChaseTab()" class="btn btn-ghost btn-sm">↻ Refresh</button>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px;">
-        <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:14px;text-align:center;cursor:pointer;" onclick="_chaseFilter='overdue';renderChaseTab()">
-          <div id="chase-stat-overdue" style="font-size:28px;font-weight:800;color:#ef4444;font-family:'Syne',sans-serif;">0</div>
-          <div style="font-size:11px;color:var(--muted);">Overdue</div></div>
-        <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:10px;padding:14px;text-align:center;cursor:pointer;" onclick="_chaseFilter='pending';renderChaseTab()">
-          <div id="chase-stat-pending" style="font-size:28px;font-weight:800;color:#f59e0b;font-family:'Syne',sans-serif;">0</div>
-          <div style="font-size:11px;color:var(--muted);">Pending</div></div>
-        <div style="background:rgba(45,212,160,0.08);border:1px solid rgba(45,212,160,0.2);border-radius:10px;padding:14px;text-align:center;cursor:pointer;" onclick="_chaseFilter='answered';renderChaseTab()">
-          <div id="chase-stat-answered" style="font-size:28px;font-weight:800;color:#2dd4a0;font-family:'Syne',sans-serif;">0</div>
-          <div style="font-size:11px;color:var(--muted);">Responded</div></div>
-        <div style="background:var(--glass);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center;cursor:pointer;" onclick="_chaseFilter='done';renderChaseTab()">
-          <div id="chase-stat-done" style="font-size:28px;font-weight:800;color:var(--muted);font-family:'Syne',sans-serif;">0</div>
-          <div style="font-size:11px;color:var(--muted);">Done</div></div>
-      </div>
-      <div id="chase-list"><div style="text-align:center;padding:48px;color:var(--muted);"><div style="font-size:40px;margin-bottom:14px;">📬</div><div style="font-size:14px;font-weight:700;">Nothing outstanding</div></div></div>`;
-    const branding=document.getElementById('section-branding');
-    if(branding)branding.parentNode.insertBefore(section,branding);
-    else document.querySelector('main')?.appendChild(section);
-  }
-})();
-
-(function buildVaultSection(){
-  const existing=document.getElementById('section-vault');
-  const vaultHTML=`
+// ── BUILD VAULT SECTION ───────────────────────────────────────────────────────
+(function buildVaultSection() {
+  const existing = document.getElementById('section-vault');
+  const vaultHTML = `
     <div class="flex-between mb-20">
-      <div><div class="section-header">🔒 Company Vault</div>
-      <div class="section-sub">Verified company knowledge used in every tender response</div></div>
+      <div>
+        <div class="section-header" style="display:flex;align-items:center;gap:10px;">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:rgba(45,212,160,0.12);border-radius:8px;border:1px solid rgba(45,212,160,0.25);">${COMPASS_SVG}</span>
+          🔒 Company Vault
+        </div>
+        <div class="section-sub">Verified company knowledge used in every tender response</div>
+      </div>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-ghost btn-sm" onclick="clearVaultFacts()" style="color:rgba(239,68,68,0.7);">🗑 Clear</button>
         <button class="btn btn-primary" onclick="openVaultUpload()">+ Add Document</button>
@@ -7387,239 +6778,152 @@ function renderChaseTab(){
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
           <div style="background:rgba(45,212,160,0.08);border:1px solid rgba(45,212,160,0.2);border-radius:10px;padding:14px;text-align:center;">
             <div id="vault-fact-count" style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:#2dd4a0;">0</div>
-            <div style="font-size:11px;color:var(--muted);">Verified Facts</div></div>
+            <div style="font-size:11px;color:var(--muted);">Verified Facts</div>
+          </div>
           <div style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:14px;text-align:center;">
             <div style="font-size:28px;font-weight:800;color:#10b981;font-family:'Syne',sans-serif;">✓</div>
-            <div style="font-size:11px;color:var(--muted);">Active</div></div>
+            <div style="font-size:11px;color:var(--muted);">Active</div>
+          </div>
         </div>
-        <div style="background:rgba(45,212,160,0.05);border:1px solid rgba(45,212,160,0.15);border-radius:8px;padding:12px;font-size:12px;color:var(--muted);line-height:1.6;">The Vault powers every response. Facts grow as you use the tool.</div>
+        <div style="background:rgba(45,212,160,0.05);border:1px solid rgba(45,212,160,0.15);border-radius:8px;padding:12px;font-size:12px;color:var(--muted);line-height:1.6;">
+          The Vault powers every response. Facts are drawn from the Eurox company profile and grow automatically as you use the tool.
+        </div>
       </div>
       <div class="card">
         <div class="card-title">✏️ Add a Fact Manually</div>
         <div style="display:flex;flex-direction:column;gap:10px;">
-          <div><label>Category</label>
-            <select id="new-fact-category" style="width:100%;margin-top:4px;"><option>Company</option><option>Certifications</option><option>H&S</option><option>Data & GDPR</option><option>Equality & Ethics</option><option>Supply Chain</option><option>Clients</option><option>Products</option><option>Financial</option></select></div>
-          <div><label>Question / Topic</label><input type="text" id="new-fact-question" placeholder="e.g. Annual turnover" style="width:100%;margin-top:4px;"></div>
-          <div><label>Answer / Fact</label><textarea id="new-fact-answer" rows="3" style="width:100%;resize:none;margin-top:4px;" placeholder="The verified fact to add..."></textarea></div>
+          <div>
+            <label>Category</label>
+            <select id="new-fact-category" style="width:100%;margin-top:4px;">
+              <option>Company</option><option>Certifications</option><option>H&S</option>
+              <option>Data & GDPR</option><option>Equality & Ethics</option><option>Supply Chain</option>
+              <option>Clients</option><option>Products</option><option>Financial</option>
+            </select>
+          </div>
+          <div>
+            <label>Question / Topic</label>
+            <input type="text" id="new-fact-question" placeholder="e.g. Annual turnover" style="width:100%;margin-top:4px;">
+          </div>
+          <div>
+            <label>Answer / Fact</label>
+            <textarea id="new-fact-answer" rows="3" style="width:100%;resize:none;margin-top:4px;" placeholder="The verified fact to add..."></textarea>
+          </div>
           <button onclick="addManualVaultFact()" style="background:linear-gradient(135deg,#2dd4a0,#0d9e6e);color:white;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;">+ Add to Vault</button>
         </div>
       </div>
     </div>
     <div class="card mb-16">
       <div class="card-title">📋 Vault Contents</div>
-      <div id="vault-facts-list"><div style="text-align:center;padding:32px;color:var(--muted);"><div style="font-size:32px;margin-bottom:10px;">🔒</div><div style="font-size:13px;font-weight:600;">Loading vault...</div></div></div>
-    </div>
-    <div class="card mb-16">
-      <div class="card-title">🏅 Certifications</div>
-      <div class="cert-grid">
-        <span class="cert-chip">✓ ISO 9001:2015</span><span class="cert-chip">✓ ISO 14001</span><span class="cert-chip">✓ ISO 45001</span><span class="cert-chip">✓ BSIF Registered</span><span class="cert-chip">✓ Cyber Essentials</span><span class="cert-chip">✓ EcoVadis Bronze</span><span class="cert-chip">✓ Achilles UVDB</span><span class="cert-chip">✓ RSQS</span><span class="cert-chip">✓ SEDEX Member</span>
+      <div id="vault-facts-list">
+        <div style="text-align:center;padding:32px;color:var(--muted);">
+          <div style="font-size:32px;margin-bottom:10px;">🔒</div>
+          <div style="font-size:13px;font-weight:600;margin-bottom:4px;">Loading vault...</div>
+        </div>
       </div>
     </div>
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-        <div class="card-title">👥 Team & Routing</div>
-        <button onclick="skAddTeamMember()" style="background:rgba(45,212,160,0.12);border:1px solid rgba(45,212,160,0.25);color:#2dd4a0;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;">+ Add person</button>
+      <div class="card-title">🏅 Certifications</div>
+      <div class="cert-grid">
+        <span class="cert-chip">✓ ISO 9001:2015</span>
+        <span class="cert-chip">✓ ISO 14001</span>
+        <span class="cert-chip">✓ ISO 45001</span>
+        <span class="cert-chip">✓ BSIF Registered</span>
+        <span class="cert-chip">✓ Cyber Essentials</span>
+        <span class="cert-chip">✓ EcoVadis Bronze</span>
+        <span class="cert-chip">✓ Achilles UVDB</span>
+        <span class="cert-chip">✓ RSQS</span>
+        <span class="cert-chip">✓ SEDEX Member</span>
       </div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">Gaps in answers route automatically to the right person based on keywords.</div>
-      <div id="sk-team-list"></div>
     </div>`;
-  if(existing)existing.innerHTML=vaultHTML;
-  else{
-    const section=document.createElement('div');section.className='section';section.id='section-vault';section.innerHTML=vaultHTML;
-    const branding=document.getElementById('section-branding');
-    if(branding)branding.parentNode.insertBefore(section,branding);else document.querySelector('main')?.appendChild(section);
+
+  if (existing) {
+    existing.innerHTML = vaultHTML;
+  } else {
+    const section = document.createElement('div');
+    section.className = 'section';
+    section.id = 'section-vault';
+    section.innerHTML = vaultHTML;
+    const branding = document.getElementById('section-branding');
+    if (branding) branding.parentNode.insertBefore(section, branding);
+    else document.querySelector('main').appendChild(section);
   }
   updateVaultCountDisplay();
-  if(typeof renderVaultFacts==='function')renderVaultFacts();
-  renderTeamList();
+  if (typeof renderVaultFacts === 'function') renderVaultFacts();
 })();
 
-function updateVaultCountDisplay(){
-  try{const vault=JSON.parse(localStorage.getItem('skai-knowledge-vault-v1')||'[]');
-  const el=document.getElementById('vault-fact-count');if(el)el.textContent=vault.length;
-  const hvc=document.getElementById('home-vault-count');if(hvc)hvc.textContent=vault.length;}catch(e){}
+// ── VAULT HELPERS ─────────────────────────────────────────────────────────────
+function updateVaultCountDisplay() {
+  try {
+    const vault = JSON.parse(localStorage.getItem('skai-knowledge-vault-v1') || '[]');
+    const el = document.getElementById('vault-fact-count');
+    if (el) el.textContent = vault.length;
+    const hvc = document.getElementById('home-vault-count');
+    if (hvc) hvc.textContent = vault.length;
+  } catch(e) {}
 }
-function addManualVaultFact(){
-  const cat=document.getElementById('new-fact-category')?.value||'General';
-  const q=document.getElementById('new-fact-question')?.value?.trim();
-  const a=document.getElementById('new-fact-answer')?.value?.trim();
-  if(!q||!a){if(typeof showVaultToast==='function')showVaultToast('Fill in both fields');return;}
-  if(typeof saveVaultFact==='function')saveVaultFact(cat,q,a);
-  document.getElementById('new-fact-question').value='';document.getElementById('new-fact-answer').value='';
-  if(typeof renderVaultFacts==='function')renderVaultFacts();
-  updateVaultCountDisplay();if(typeof showVaultToast==='function')showVaultToast('✓ Fact added');
+function addManualVaultFact() {
+  const cat = document.getElementById('new-fact-category')?.value || 'General';
+  const q = document.getElementById('new-fact-question')?.value?.trim();
+  const a = document.getElementById('new-fact-answer')?.value?.trim();
+  if (!q || !a) { if(typeof showVaultToast==='function') showVaultToast('Fill in both fields'); return; }
+  if (typeof saveVaultFact === 'function') saveVaultFact(cat, q, a);
+  document.getElementById('new-fact-question').value = '';
+  document.getElementById('new-fact-answer').value = '';
+  if (typeof renderVaultFacts === 'function') renderVaultFacts();
+  updateVaultCountDisplay();
+  if (typeof showVaultToast === 'function') showVaultToast('✓ Fact added to vault');
 }
-function clearVaultFacts(){
-  if(!confirm('Reset vault to defaults?'))return;
-  try{localStorage.removeItem('skai-knowledge-vault-v1');}catch(e){}
-  if(typeof initVaultIfEmpty==='function')initVaultIfEmpty();
-  if(typeof renderVaultFacts==='function')renderVaultFacts();
-  updateVaultCountDisplay();if(typeof showVaultToast==='function')showVaultToast('Vault reset');
-}
-
-const TEAM_KEY='sk-team-v1';
-const DEFAULT_TEAM=[
-  {id:'mark',name:'Mark',role:'Sales Manager',email:'',areas:['compliance','policy','accreditation','quality','framework']},
-  {id:'harvy',name:'Harvy',role:'Procurement Manager',email:'',areas:['procurement','supplier','pricing','h&s','health and safety','accident','riddor']},
-  {id:'priyanka',name:'Priyanka',role:'Procurement Support',email:'',areas:['sourcing','catalogue','stock']},
-  {id:'polly',name:'Polly',role:'Internal Sales',email:'',areas:['sales','account','client','customer']},
-  {id:'graham',name:'Graham',role:'IT Manager',email:'',areas:['it','data','gdpr','cloud','cyber','retention','backup','server','technology','network','security']},
-];
-function getTeam(){try{const s=JSON.parse(localStorage.getItem(TEAM_KEY)||'[]');return s.length?s:DEFAULT_TEAM;}catch(e){return DEFAULT_TEAM;}}
-function saveTeam(t){localStorage.setItem(TEAM_KEY,JSON.stringify(t));}
-function routePlaceholder(text){const t=text.toLowerCase();for(const m of getTeam()){if(m.areas.some(a=>t.includes(a)))return m;}return null;}
-function renderTeamList(){
-  const list=document.getElementById('sk-team-list');if(!list)return;
-  list.innerHTML=getTeam().map(m=>`<div class="team-card" id="team-${m.id}">
-    <div class="team-avatar">${m.name[0].toUpperCase()}</div>
-    <div style="flex:1;min-width:0;">
-      <div style="font-size:13px;font-weight:700;color:var(--text);">${m.name}<span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px;">${m.role}</span></div>
-      ${m.email?`<div style="font-size:11px;color:var(--muted);">${m.email}</div>`:''}
-      <div style="margin-top:5px;">${m.areas.slice(0,5).map(a=>`<span class="routing-tag">${a}</span>`).join('')}</div>
-    </div>
-    <button onclick="skEditTeamMember('${m.id}')" style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:11px;color:var(--muted);cursor:pointer;">Edit</button>
-  </div>`).join('');
-}
-function skAddTeamMember(){
-  const name=prompt('Name:');if(!name)return;
-  const role=prompt('Role:');const email=prompt('Email:');
-  const areas=prompt('Responsible for (comma separated keywords):');if(!areas)return;
-  const team=getTeam();
-  team.push({id:name.toLowerCase().replace(/\s+/g,'_')+'_'+Date.now(),name,role:role||'',email:email||'',areas:areas.split(',').map(a=>a.trim().toLowerCase()).filter(Boolean)});
-  saveTeam(team);renderTeamList();if(typeof showVaultToast==='function')showVaultToast('✓ '+name+' added');
-}
-function skEditTeamMember(id){
-  const team=getTeam(),m=team.find(t=>t.id===id);if(!m)return;
-  const email=prompt('Email for '+m.name+':',m.email||'');if(email===null)return;
-  const areas=prompt('Responsible for:',m.areas.join(', '));if(areas===null)return;
-  m.email=email;m.areas=areas.split(',').map(a=>a.trim().toLowerCase()).filter(Boolean);
-  saveTeam(team);renderTeamList();if(typeof showVaultToast==='function')showVaultToast('✓ '+m.name+' updated');
+function clearVaultFacts() {
+  if (!confirm('Reset vault to defaults?')) return;
+  try { localStorage.removeItem('skai-knowledge-vault-v1'); } catch(e) {}
+  if (typeof initVaultIfEmpty === 'function') initVaultIfEmpty();
+  if (typeof renderVaultFacts === 'function') renderVaultFacts();
+  updateVaultCountDisplay();
+  if (typeof showVaultToast === 'function') showVaultToast('Vault reset to defaults');
 }
 
-function injectApproveAllBar(){
-  if(document.getElementById('sk-approve-bar'))return;
-  const qc=document.getElementById('questions-container');if(!qc)return;
-  const bar=document.createElement('div');bar.id='sk-approve-bar';bar.className='approve-all-bar';
-  bar.innerHTML=`<div><div style="font-size:13px;font-weight:700;color:var(--text);">Review answers</div>
-    <div style="font-size:11px;color:var(--muted);margin-top:2px;" id="sk-approve-status">Check each answer then approve — or approve all at once</div></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <button onclick="skScanPlaceholders()" style="background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);color:#f59e0b;border-radius:8px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;">🔍 Find gaps</button>
-      <button onclick="skApproveAll()" style="background:linear-gradient(135deg,#2dd4a0,#0d9e6e);color:white;border:none;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:700;cursor:pointer;">✓ Approve all</button>
-    </div>`;
-  qc.parentNode.insertBefore(bar,qc);
-}
-function skApproveAll(){
-  document.querySelectorAll('.q-warning,.q-flag').forEach(el=>{el.style.display='none';});
-  if(window._wsQuestions)window._wsQuestions.forEach(q=>{q.approved=true;q.status='approved';});
-  const status=document.getElementById('sk-approve-status');
-  if(status)status.textContent='✓ All approved — ready to export';
-  if(typeof showVaultToast==='function')showVaultToast('✓ All answers approved');
-  if(typeof renderQuestions==='function')renderQuestions();
-}
-function skScanPlaceholders(){
-  const questions=window._wsQuestions||[];const flagged=[];
-  questions.forEach((q,i)=>{
-    const answer=q.answer||'';
-    const matches=[...answer.matchAll(/\[([^\]]{3,80})\]/g)];
-    matches.forEach(m=>{flagged.push({qIndex:i,qText:q.question||q.text||'Question '+(i+1),placeholder:m[1],routed:routePlaceholder(m[1])});});
-  });
-  if(!flagged.length){if(typeof showVaultToast==='function')showVaultToast('✓ No gaps found');return;}
-  let modal=document.getElementById('sk-ph-modal');if(modal)modal.remove();
-  modal=document.createElement('div');modal.id='sk-ph-modal';
-  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
-  modal.innerHTML=`<div style="background:var(--navy2);border:1px solid var(--border);border-radius:14px;padding:24px;max-width:640px;width:100%;max-height:85vh;overflow-y:auto;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <div><div style="font-size:15px;font-weight:800;color:var(--text);">🔍 ${flagged.length} gap${flagged.length!==1?'s':''} found</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:2px;">These need team input before submission</div></div>
-      <button onclick="document.getElementById('sk-ph-modal').remove()" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;">✕</button>
-    </div>
-    ${flagged.map(f=>`<div class="placeholder-flag">
-      <div style="flex:1;min-width:0;">
-        <div style="font-size:11px;color:var(--muted);margin-bottom:2px;">${f.qText.substring(0,80)}</div>
-        <div style="font-weight:700;color:#ef4444;">[ ${f.placeholder} ]</div>
-      </div>
-      <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
-        ${f.routed?`<span style="font-size:10px;color:var(--muted);">→ ${f.routed.name}</span>
-        <button class="send-to-btn" onclick="skSendGap('${f.placeholder.replace(/'/g,"\\'")}','${f.routed.name}')">Send to ${f.routed.name}</button>`
-        :`<select onchange="if(this.value)skSendGap('${f.placeholder.replace(/'/g,"\\'")}',this.value)" style="font-size:11px;padding:3px 6px;border-radius:5px;border:1px solid var(--border);background:var(--glass);color:var(--text);">
-          <option value="">— Assign to —</option>
-          ${getTeam().map(m=>`<option value="${m.name}">${m.name}</option>`).join('')}
-        </select>`}
-      </div>
-    </div>`).join('')}
-    <div style="display:flex;gap:8px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
-      <button onclick="skSendAllGaps()" style="background:linear-gradient(135deg,#2dd4a0,#0d9e6e);color:white;border:none;border-radius:8px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;flex:1;">Send all to team →</button>
-      <button onclick="document.getElementById('sk-ph-modal').remove()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:9px 14px;font-size:13px;color:var(--muted);cursor:pointer;">Close</button>
-    </div>
-  </div>`;
-  document.body.appendChild(modal);modal.onclick=e=>{if(e.target===modal)modal.remove();};
-  window._lastFlagged=flagged;
-}
-function skSendGap(placeholder,personName){
-  const tenderName=document.querySelector('.ws-tender-name')?.textContent||'Current tender';
-  if(typeof addChaseRequest==='function')addChaseRequest({person:personName,question:'Please confirm: '+placeholder,tenderName,itemType:'question'});
-  if(typeof showVaultToast==='function')showVaultToast('Sent to '+personName+' · appears in Chase tab');
-}
-function skSendAllGaps(){
-  const flagged=window._lastFlagged||[];
-  flagged.forEach(f=>{if(f.routed)skSendGap(f.placeholder,f.routed.name);});
-  document.getElementById('sk-ph-modal')?.remove();
-  if(typeof showVaultToast==='function')showVaultToast('All gaps sent to team');
-  setTimeout(()=>{if(typeof showSection==='function')showSection('chase');},1500);
-}
-
-function detectPackSize(description){
-  if(!description)return null;
-  const patterns=[
-    {regex:/pack(?:age)? of (\d+)/i,label:'pack'},{regex:/box(?:es)? of (\d+)/i,label:'box'},
-    {regex:/\((\d+)\s*(?:per pack|per box|pk|pack)\)/i,label:'pack'},
-    {regex:/(\d+)\s*(?:per pack|per box|per bag)/i,label:'pack'},
-    {regex:/pair/i,label:'pair',qty:2},{regex:/twin pack/i,label:'twin pack',qty:2},
-  ];
-  for(const p of patterns){const m=description.match(p.regex);if(m){const qty=p.qty||parseInt(m[1]);if(qty>1)return{qty,label:p.label};}}
-  return null;
-}
-function isTenderMode(){return!!(window._quoteFromTender||document.getElementById('quote-tender-ref')?.value||window.currentTender?.type==='ITT');}
-window.showCustomerQuotePreview=function(){skSmartQuotePreview();};
-setTimeout(()=>{document.querySelectorAll('button').forEach(btn=>{if(btn.textContent?.includes('Preview Quote')||btn.textContent?.includes('Preview & Export'))btn.onclick=skSmartQuotePreview;});},1200);
-function skSmartQuotePreview(){
-  const lines=window.quoteLines||[];
-  if(!lines.length){if(typeof showVaultToast==='function')showVaultToast('Add products to the quote first');return;}
-  const tenderMode=isTenderMode();
-  const b={company:document.getElementById('brand-company-name')?.value||'Eurox / Future Garments Ltd',tagline:document.getElementById('brand-tagline')?.value||'Safety & Workwear Solutions — Since 1988',contact:document.getElementById('brand-contact')?.value||'Aqua House, Buttress Way, Smethwick, West Midlands B66 3DL',color:'#0d9e6e'};
-  const q={client:document.getElementById('quote-client')?.value||'',ref:document.getElementById('quote-ref')?.value||'',date:document.getElementById('quote-date')?.value||new Date().toLocaleDateString('en-GB'),valid:document.getElementById('quote-valid')?.value||''};
-  const totalSell=lines.reduce((s,l)=>s+(parseFloat(l.sell||0)*parseInt(l.qty||1)),0);
-  const vat=totalSell*0.2;
-  const dateFormatted=new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
-  const tableRows=lines.map((l,i)=>{
-    const sell=parseFloat(l.sell||0),qty=parseInt(l.qty||1),lineTotal=sell*qty;
-    const pack=detectPackSize(l.description||l.name||'');
-    const packNote=pack?`<div style="font-size:10px;color:#0d9e6e;font-weight:600;margin-top:2px;">Sold in ${pack.label}s of ${pack.qty} · Unit: £${sell.toFixed(2)} · ${pack.label[0].toUpperCase()+pack.label.slice(1)}: £${(sell*pack.qty).toFixed(2)}</div>`:'';
-    if(tenderMode)return`<tr style="border-bottom:1px solid #e5e7eb;"><td style="padding:10px 8px;font-size:12px;color:#6b7280;">${i+1}</td><td style="padding:10px 8px;"><div style="font-weight:600;font-size:13px;color:#111827;">${l.description||l.name||''}</div>${l.code?`<div style="font-size:11px;color:#9ca3af;">Ref: ${l.code}</div>`:''} ${l.std?`<div style="font-size:11px;color:#0d9e6e;font-weight:600;">${l.std}</div>`:''} ${l.spec?`<div style="font-size:11px;color:#6b7280;">${l.spec}</div>`:''}${packNote}</td><td style="padding:10px 8px;text-align:center;font-size:13px;font-weight:600;">${qty}</td><td style="padding:10px 8px;text-align:right;font-size:13px;font-weight:700;">£${sell.toFixed(2)}</td></tr>`;
-    return`<tr style="border-bottom:1px solid #e5e7eb;"><td style="padding:10px 8px;font-size:12px;color:#6b7280;">${i+1}</td><td style="padding:10px 8px;"><div style="font-weight:600;font-size:13px;color:#111827;">${l.description||l.name||''}</div>${l.code?`<div style="font-size:11px;color:#9ca3af;">Ref: ${l.code}</div>`:''} ${l.std?`<div style="font-size:11px;color:#0d9e6e;font-weight:600;">${l.std}</div>`:''} ${l.spec?`<div style="font-size:11px;color:#6b7280;">${l.spec}</div>`:''}${packNote}</td><td style="padding:10px 8px;text-align:center;font-size:13px;font-weight:600;">${qty}</td><td style="padding:10px 8px;text-align:center;font-size:12px;color:#6b7280;">${l.lead||'—'}</td><td style="padding:10px 8px;text-align:right;font-size:13px;font-weight:700;">£${sell.toFixed(2)}</td><td style="padding:10px 8px;text-align:right;font-size:13px;font-weight:700;color:#0d9e6e;">£${lineTotal.toFixed(2)}</td></tr>`;
-  }).join('');
-  const totalsHTML=tenderMode?'':`<div style="background:#f0fdf4;border-radius:8px;padding:16px 20px;margin-top:8px;"><div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#374151;"><span>Subtotal (ex VAT)</span><span>£${totalSell.toFixed(2)}</span></div><div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0;color:#374151;"><span>VAT (20%)</span><span>£${vat.toFixed(2)}</span></div><div style="display:flex;justify-content:space-between;font-size:16px;font-weight:800;color:#0a1f18;border-top:1px solid #d1fae5;padding-top:8px;margin-top:4px;"><span>Total inc. VAT</span><span style="color:#0d9e6e;">£${(totalSell+vat).toFixed(2)}</span></div></div>`;
-  const headerMeta=tenderMode?`<div style="font-size:28px;font-weight:800;color:#0d9e6e;">PRICE SCHEDULE</div><div style="font-size:12px;color:#6b7280;margin-top:4px;line-height:1.7;text-align:right;">${q.client?`<div><strong>Tender:</strong> ${q.client}</div>`:''} ${q.ref?`<div><strong>Ref:</strong> ${q.ref}</div>`:''}<div><strong>Date:</strong> ${q.date||dateFormatted}</div><div style="margin-top:4px;font-size:11px;color:#dc2626;font-weight:600;">Commercial in confidence</div></div>`:`<div style="font-size:28px;font-weight:800;color:#0d9e6e;">QUOTE</div><div style="font-size:12px;color:#6b7280;margin-top:4px;line-height:1.7;text-align:right;">${q.client?`<div><strong>For:</strong> ${q.client}</div>`:''} ${q.ref?`<div><strong>Ref:</strong> ${q.ref}</div>`:''}<div><strong>Date:</strong> ${q.date||dateFormatted}</div>${q.valid?`<div><strong>Valid until:</strong> ${q.valid}</div>`:''}</div>`;
-  const tableHeaders=tenderMode?`<th style="width:36px;">#</th><th>Product Description</th><th style="width:60px;text-align:center;">Qty</th><th style="width:100px;text-align:right;">Unit Price (£)</th>`:`<th style="width:36px;">#</th><th>Product Description</th><th style="width:60px;text-align:center;">Qty</th><th style="width:90px;text-align:center;">Lead Time</th><th style="width:90px;text-align:right;">Unit Price</th><th style="width:100px;text-align:right;">Line Total</th>`;
-  const termsHTML=tenderMode?`<p style="font-size:11px;color:#6b7280;margin-top:16px;line-height:1.6;">All prices are in GBP and exclude VAT. CE/UKCA marked to relevant EN standards. Prices valid 30 days from quote date. Eurox is a trading division of Future Garments Ltd, registered in England & Wales.</p>`:`<p style="font-size:11px;color:#6b7280;margin-top:16px;line-height:1.6;background:#f9fafb;padding:12px;border-radius:6px;">Terms & Conditions: All prices in GBP. Payment: 30 days net from invoice. Delivery: 3-5 working days stock items, 10-14 working days bespoke/branded. All PPE is CE/UKCA marked to relevant EN standards. Prices valid 30 days from quote date. Eurox is a trading division of Future Garments Ltd, registered in England & Wales.</p>`;
-  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${tenderMode?'Price Schedule':'Quote'} — ${b.company}</title><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:Arial,sans-serif;color:#111827;background:white;}.page{max-width:820px;margin:0 auto;padding:40px;}.top-bar{background:#0a1f18;color:white;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;}.top-btn{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:white;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;}.top-btn.green{background:#0d9e6e;border-color:#0d9e6e;}.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:20px;border-bottom:3px solid #0d9e6e;}.co-name{font-size:20px;font-weight:800;color:#0a1f18;}.co-tag{font-size:12px;color:#6b7280;margin-top:2px;}.co-contact{font-size:11px;color:#9ca3af;margin-top:4px;line-height:1.5;}table{width:100%;border-collapse:collapse;margin:16px 0;}thead tr{background:#f0fdf4;border-bottom:2px solid #0d9e6e;}th{padding:10px 8px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.4px;color:#0d9e6e;text-align:left;}tbody tr{border-bottom:1px solid #f3f4f6;}.footer-bar{margin-top:24px;padding-top:12px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af;display:flex;justify-content:space-between;}@media print{.top-bar{display:none!important;}.page{padding:20px;}}</style></head><body><div class="top-bar"><div style="font-size:12px;font-weight:600;">${tenderMode?'Price Schedule — tender response':'Customer Quote — client-facing'} · <span style="color:#fbbf24;">Costs and margins hidden</span></div><div style="display:flex;gap:8px;"><button class="top-btn green" onclick="window.print()">Print / Save PDF</button><button class="top-btn" onclick="window.close()">Close</button></div></div><div class="page"><div class="header"><div><div class="co-name">${b.company}</div><div class="co-tag">${b.tagline}</div><div class="co-contact">${b.contact}</div></div><div style="text-align:right;">${headerMeta}</div></div><table><thead><tr>${tableHeaders}</tr></thead><tbody>${tableRows}</tbody></table>${totalsHTML}${termsHTML}<div class="footer-bar"><span>${b.company} · ISO 9001:2015 Certified · BSIF Registered</span><span>${dateFormatted}</span></div></div></body></html>`;
-  const w=window.open('','_blank','width=900,height=750,scrollbars=yes');
-  if(w){w.document.write(html);w.document.close();}
-}
-
-const _origShowSectionMaster=window.showSection;
-window.showSection=function(id){
-  if(typeof _origShowSectionMaster==='function')_origShowSectionMaster(id);
-  if(id==='chase')setTimeout(renderChaseTab,300);
-  if(id==='vault')setTimeout(()=>{updateVaultCountDisplay();if(typeof renderVaultFacts==='function')renderVaultFacts();renderTeamList();},300);
-  if(id==='builder')setTimeout(injectApproveAllBar,500);
+// ── OVERRIDE showSection TO REFRESH VAULT ────────────────────────────────────
+const _origShowSection = window.showSection;
+window.showSection = function(id) {
+  if (typeof _origShowSection === 'function') _origShowSection(id);
+  if (id === 'vault') { if (typeof renderVaultFacts === 'function') renderVaultFacts(); updateVaultCountDisplay(); }
 };
 
-setTimeout(()=>{
-  updateVaultCountDisplay();
-  if(typeof renderVaultFacts==='function')renderVaultFacts();
-  updateChaseBadge();renderTeamList();injectApproveAllBar();
-},900);
+// ── ADD COMPASS TO HOME WELCOME AREA ─────────────────────────────────────────
+(function addCompassToHome() {
+  const welcome = document.querySelector('#section-dashboard');
+  if (!welcome) return;
+  // Find the "Good to see you" heading area and inject compass watermark
+  const heading = welcome.querySelector('div[style*="font-size:22px"]');
+  if (heading && heading.parentElement) {
+    const compassWatermark = document.createElement('div');
+    compassWatermark.style.cssText = 'position:absolute;top:0;right:0;opacity:0.07;pointer-events:none;';
+    compassWatermark.innerHTML = `<svg width="120" height="120" viewBox="0 0 22 22" fill="none">
+      <circle cx="11" cy="11" r="10" stroke="#2dd4a0" stroke-width="1.5"/>
+      <circle cx="11" cy="11" r="3" fill="#2dd4a0"/>
+      <path d="M11 2V5M11 17V20M2 11H5M17 11H20" stroke="#2dd4a0" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>`;
+    const parent = heading.parentElement;
+    if (parent.style.position !== 'relative') parent.style.position = 'relative';
+    parent.appendChild(compassWatermark);
+  }
+})();
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+if (document.readyState !== 'loading') {
+  setTimeout(() => {
+    updateVaultCountDisplay();
+    if (typeof renderVaultFacts === 'function') renderVaultFacts();
+  }, 600);
+} else {
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+      updateVaultCountDisplay();
+      if (typeof renderVaultFacts === 'function') renderVaultFacts();
+    }, 600);
+  });
+}
+</script>
 </script>
 </body>
 </html>
