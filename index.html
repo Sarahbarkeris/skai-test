@@ -7006,5 +7006,167 @@ if (document.readyState !== 'loading') {
   });
   setTimeout(() => obs.observe(document.body, { childList: true, subtree: true }), 500);
 })();
-</script></body>
+</script><<!-- PATCH: Approve All + Delete Tender buttons -->
+<script>
+(function addApproveAndDelete() {
+  function inject() {
+    // Find the "Clear all" button
+    document.querySelectorAll('button').forEach(btn => {
+      if (btn.textContent?.trim() === 'Clear all' && !document.getElementById('sk-approve-all-btn')) {
+        
+        // Add APPROVE ALL button next to it
+        const approveBtn = document.createElement('button');
+        approveBtn.id = 'sk-approve-all-btn';
+        approveBtn.innerHTML = '✓ Approve all answers';
+        approveBtn.style.cssText = 'background:linear-gradient(135deg,#2dd4a0,#0d9e6e);color:white;border:none;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:700;cursor:pointer;margin-right:8px;';
+        approveBtn.onclick = function() {
+          // Hide all warning triangles / unapproved flags
+          document.querySelectorAll('.q-warning, .q-flag, [class*="approve"], .approve-needed').forEach(el => {
+            el.style.display = 'none';
+          });
+          // Click all individual approve buttons
+          document.querySelectorAll('button').forEach(b => {
+            if (b.textContent?.includes('APPROVE ANSWER') || b.textContent?.includes('Approve Answer')) {
+              b.click();
+            }
+          });
+          // Mark all questions approved in state
+          if (window._wsQuestions) window._wsQuestions.forEach(q => { q.approved = true; q.status = 'approved'; });
+          if (typeof showVaultToast === 'function') showVaultToast('✓ All 89 answers approved');
+          approveBtn.textContent = '✓ All approved';
+          approveBtn.style.background = '#10b981';
+        };
+        btn.parentNode.insertBefore(approveBtn, btn);
+
+        // Add DELETE TENDER button
+        const deleteBtn = document.createElement('button');
+        deleteBtn.id = 'sk-delete-tender-btn';
+        deleteBtn.innerHTML = '🗑 Delete tender';
+        deleteBtn.style.cssText = 'background:none;border:1px solid rgba(239,68,68,0.4);color:rgba(239,68,68,0.7);border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;margin-left:8px;';
+        deleteBtn.onmouseover = () => { deleteBtn.style.borderColor = '#ef4444'; deleteBtn.style.color = '#ef4444'; };
+        deleteBtn.onmouseout = () => { deleteBtn.style.borderColor = 'rgba(239,68,68,0.4)'; deleteBtn.style.color = 'rgba(239,68,68,0.7)'; };
+        deleteBtn.onclick = function() {
+          if (!confirm('Delete this entire tender and all its answers? This cannot be undone.')) return;
+          // Clear workspace
+          if (window._wsQuestions) window._wsQuestions = [];
+          if (window._activeTenderId) {
+            ['skai-tenders-v1','skai-tenders-v2'].forEach(key => {
+              const list = JSON.parse(localStorage.getItem(key)||'[]').filter(t => t.id !== window._activeTenderId);
+              localStorage.setItem(key, JSON.stringify(list));
+            });
+            window._activeTenderId = null;
+          }
+          // Reset workspace UI
+          const es = document.getElementById('workspace-empty');
+          const as = document.getElementById('workspace-active');
+          if (es) es.style.display = 'flex';
+          if (as) as.style.display = 'none';
+          const qc = document.getElementById('questions-container');
+          if (qc) qc.innerHTML = '';
+          if (typeof renderTenderSidebar === 'function') renderTenderSidebar();
+          if (typeof updateHomeStats === 'function') updateHomeStats();
+          if (typeof showVaultToast === 'function') showVaultToast('Tender deleted');
+          if (typeof showSection === 'function') showSection('builder');
+        };
+        btn.parentNode.appendChild(deleteBtn);
+      }
+    });
+  }
+
+  // Run on load and when section changes
+  setTimeout(inject, 1000);
+  const _orig = window.showSection;
+  window.showSection = function(id) {
+    if (typeof _orig === 'function') _orig(id);
+    if (id === 'builder') setTimeout(inject, 600);
+  };
+  
+  // Also watch for questions loading
+  const obs = new MutationObserver(() => {
+    if (!document.getElementById('sk-approve-all-btn')) inject();
+  });
+  setTimeout(() => obs.observe(document.body, { childList: true, subtree: true }), 500);
+})();
+</script><!-- PATCH: Approve All + Delete Tender buttons -->
+<script>
+(function addApproveAndDelete() {
+  function inject() {
+    // Find the "Clear all" button
+    document.querySelectorAll('button').forEach(btn => {
+      if (btn.textContent?.trim() === 'Clear all' && !document.getElementById('sk-approve-all-btn')) {
+        
+        // Add APPROVE ALL button next to it
+        const approveBtn = document.createElement('button');
+        approveBtn.id = 'sk-approve-all-btn';
+        approveBtn.innerHTML = '✓ Approve all answers';
+        approveBtn.style.cssText = 'background:linear-gradient(135deg,#2dd4a0,#0d9e6e);color:white;border:none;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:700;cursor:pointer;margin-right:8px;';
+        approveBtn.onclick = function() {
+          // Hide all warning triangles / unapproved flags
+          document.querySelectorAll('.q-warning, .q-flag, [class*="approve"], .approve-needed').forEach(el => {
+            el.style.display = 'none';
+          });
+          // Click all individual approve buttons
+          document.querySelectorAll('button').forEach(b => {
+            if (b.textContent?.includes('APPROVE ANSWER') || b.textContent?.includes('Approve Answer')) {
+              b.click();
+            }
+          });
+          // Mark all questions approved in state
+          if (window._wsQuestions) window._wsQuestions.forEach(q => { q.approved = true; q.status = 'approved'; });
+          if (typeof showVaultToast === 'function') showVaultToast('✓ All 89 answers approved');
+          approveBtn.textContent = '✓ All approved';
+          approveBtn.style.background = '#10b981';
+        };
+        btn.parentNode.insertBefore(approveBtn, btn);
+
+        // Add DELETE TENDER button
+        const deleteBtn = document.createElement('button');
+        deleteBtn.id = 'sk-delete-tender-btn';
+        deleteBtn.innerHTML = '🗑 Delete tender';
+        deleteBtn.style.cssText = 'background:none;border:1px solid rgba(239,68,68,0.4);color:rgba(239,68,68,0.7);border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;margin-left:8px;';
+        deleteBtn.onmouseover = () => { deleteBtn.style.borderColor = '#ef4444'; deleteBtn.style.color = '#ef4444'; };
+        deleteBtn.onmouseout = () => { deleteBtn.style.borderColor = 'rgba(239,68,68,0.4)'; deleteBtn.style.color = 'rgba(239,68,68,0.7)'; };
+        deleteBtn.onclick = function() {
+          if (!confirm('Delete this entire tender and all its answers? This cannot be undone.')) return;
+          // Clear workspace
+          if (window._wsQuestions) window._wsQuestions = [];
+          if (window._activeTenderId) {
+            ['skai-tenders-v1','skai-tenders-v2'].forEach(key => {
+              const list = JSON.parse(localStorage.getItem(key)||'[]').filter(t => t.id !== window._activeTenderId);
+              localStorage.setItem(key, JSON.stringify(list));
+            });
+            window._activeTenderId = null;
+          }
+          // Reset workspace UI
+          const es = document.getElementById('workspace-empty');
+          const as = document.getElementById('workspace-active');
+          if (es) es.style.display = 'flex';
+          if (as) as.style.display = 'none';
+          const qc = document.getElementById('questions-container');
+          if (qc) qc.innerHTML = '';
+          if (typeof renderTenderSidebar === 'function') renderTenderSidebar();
+          if (typeof updateHomeStats === 'function') updateHomeStats();
+          if (typeof showVaultToast === 'function') showVaultToast('Tender deleted');
+          if (typeof showSection === 'function') showSection('builder');
+        };
+        btn.parentNode.appendChild(deleteBtn);
+      }
+    });
+  }
+
+  // Run on load and when section changes
+  setTimeout(inject, 1000);
+  const _orig = window.showSection;
+  window.showSection = function(id) {
+    if (typeof _orig === 'function') _orig(id);
+    if (id === 'builder') setTimeout(inject, 600);
+  };
+  
+  // Also watch for questions loading
+  const obs = new MutationObserver(() => {
+    if (!document.getElementById('sk-approve-all-btn')) inject();
+  });
+  setTimeout(() => obs.observe(document.body, { childList: true, subtree: true }), 500);
+})();
+</script>/body>
 </html>
