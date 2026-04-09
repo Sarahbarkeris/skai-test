@@ -7168,5 +7168,174 @@ if (document.readyState !== 'loading') {
   });
   setTimeout(() => obs.observe(document.body, { childList: true, subtree: true }), 500);
 })();
-</script>/body>
+</script><!-- PATCH: Auto-flag gaps + grouped department emails + fix export chase -->
+<script>
+(function fixChaseAndExport() {
+
+  const DEPT_ROUTES = [
+    { dept: 'HR Manager',        keywords: ['hr','human resources','staff','employee','employment','contract','vetting','clearance','dbs','background check','recruitment'] },
+    { dept: 'Graham (IT)',       keywords: ['it ','data','gdpr','cyber','cloud','server','network','software','system','technology','retention','backup','information security','dmarc','encryption','firewall'] },
+    { dept: 'Mark (Compliance)', keywords: ['compliance','policy','accreditation','certification','iso','quality','audit','framework','standard','regulation','legal'] },
+    { dept: 'Harvy (Procurement)', keywords: ['procurement','supplier','supply chain','purchasing','vendor','sourcing','stock','pricing'] },
+    { dept: 'Finance',           keywords: ['finance','financial','turnover','revenue','accounts','tax','vat','profit','insurance'] },
+  ];
+
+  function routeToDept(text) {
+    const t = (text || '').toLowerCase();
+    for (const r of DEPT_ROUTES) {
+      if (r.keywords.some(k => t.includes(k))) return r.dept;
+    }
+    return 'General Manager';
+  }
+
+  function hasGap(answer) {
+    if (!answer) return false;
+    return answer.includes('ACTION NEEDED') ||
+           answer.includes('[CONFIRM') ||
+           answer.includes('[confirm') ||
+           answer.includes('[INSERT') ||
+           answer.includes('Ask HR') ||
+           answer.includes('to be confirmed') ||
+           answer.includes('TBC') ||
+           /\[[A-Z][^\]]{5,}\]/.test(answer);
+  }
+
+  function autoScanForGaps() {
+    const questions = window._wsQuestions || [];
+    let count = 0;
+    questions.forEach((q, i) => {
+      if (!hasGap(q.answer)) return;
+      if (q._gapFlagged) return;
+      q._gapFlagged = true;
+      q._dept = routeToDept((q.question || q.text || '') + ' ' + (q.answer || ''));
+      count++;
+      setTimeout(() => {
+        const selectors = [
+          '[data-q-index="' + i + '"]',
+          '#q-row-' + i,
+          '#question-' + i
+        ];
+        let row = null;
+        for (const s of selectors) { row = document.querySelector(s); if (row) break; }
+        if (row && !row.querySelector('.sk-gap-flag')) {
+          const flag = document.createElement('div');
+          flag.className = 'sk-gap-flag';
+          flag.style.cssText = 'background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:7px 12px;margin-top:8px;font-size:12px;color:#ef4444;display:flex;align-items:center;gap:6px;flex-wrap:wrap;';
+          flag.innerHTML = '<span>⚠</span><span>Needs input from <strong>' + q._dept + '</strong> before submission</span><span style="font-size:10px;color:var(--muted);">· included in Chase export</span>';
+          row.appendChild(flag);
+        }
+      }, 600);
+    });
+    if (count > 0 && typeof showVaultToast === 'function') {
+      showVaultToast('⚠ ' + count + ' gap' + (count !== 1 ? 's' : '') + ' need team input — see Export & Chase Actions');
+    }
+    return count;
+  }
+
+  function buildDeptEmail(dept, questions, tenderName) {
+    const name = dept.split(' ')[0];
+    const lines = questions.map((q, i) =>
+      (i + 1) + '. Q' + q.num + ': ' + q.question + '\n   Action needed: ' + q.needed
+    ).join('\n\n');
+    return 'Hi ' + name + ',\n\nI am working on the ' + tenderName + ' submission and need your input on ' + questions.length + ' question' + (questions.length !== 1 ? 's' : '') + ':\n\n' + lines + '\n\nPlease respond as soon as possible — this is needed to complete the submission.\n\nThank you';
+  }
+
+  window.showDeptChaseModal = function() {
+    const questions = window._wsQuestions || [];
+    const tenderName = document.querySelector('[class*="tender-name"]')?.textContent || 'This Tender';
+    autoScanForGaps();
+
+    const groups = {};
+    questions.forEach((q, i) => {
+      if (!hasGap(q.answer || '')) return;
+      const dept = q._dept || routeToDept((q.question || q.text || '') + ' ' + (q.answer || ''));
+      if (!groups[dept]) groups[dept] = [];
+      let needed = 'Please review and provide input.';
+      if (q.answer && q.answer.includes('ACTION NEEDED')) {
+        const m = q.answer.match(/Ask ([^:]+):\s*["""']([^"""']+)["""']/);
+        if (m) needed = m[2];
+      }
+      groups[dept].push({ num: i + 1, question: q.question || q.text || 'Question ' + (i + 1), needed });
+    });
+
+    const deptList = Object.entries(groups);
+
+    if (!deptList.length) {
+      if (typeof showVaultToast === 'function') showVaultToast('No gaps found — all questions complete');
+      return;
+    }
+
+    let existing = document.getElementById('sk-dept-modal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'sk-dept-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+
+    let cardsHTML = '';
+    deptList.forEach(function(entry) {
+      const dept = entry[0];
+      const qs = entry[1];
+      const emailBody = buildDeptEmail(dept, qs, tenderName);
+      const mailto = 'mailto:?subject=' + encodeURIComponent(tenderName + ' — Input Needed') + '&body=' + encodeURIComponent(emailBody);
+      const qListHTML = qs.map(function(q) {
+        return '<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06);font-size:12px;"><span style="color:#2dd4a0;font-weight:700;margin-right:4px;">Q' + q.num + ':</span><span style="color:var(--text);">' + q.question.substring(0, 100) + (q.question.length > 100 ? '...' : '') + '</span></div>';
+      }).join('');
+
+      cardsHTML += '<div style="background:var(--glass);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;flex-wrap:wrap;gap:8px;">' +
+          '<div><div style="font-size:14px;font-weight:800;color:var(--text);">' + dept + '</div>' +
+          '<div style="font-size:11px;color:var(--muted);">' + qs.length + ' question' + (qs.length !== 1 ? 's' : '') + ' need answering</div></div>' +
+          '<div style="display:flex;gap:6px;">' +
+            '<button onclick="navigator.clipboard.writeText(' + JSON.stringify(emailBody) + ');this.textContent=\'✓ Copied!\';setTimeout(function(){this.textContent=\'📋 Copy\'},2000,this)" style="background:var(--glass);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer;">📋 Copy</button>' +
+            '<a href="' + mailto + '" target="_blank" style="background:linear-gradient(135deg,#2dd4a0,#0d9e6e);color:white;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;">✉️ Open email</a>' +
+          '</div>' +
+        '</div>' +
+        '<div style="background:rgba(0,0,0,0.15);border-radius:6px;padding:8px 10px;">' + qListHTML + '</div>' +
+      '</div>';
+    });
+
+    modal.innerHTML = '<div style="background:var(--navy2);border:1px solid var(--border);border-radius:14px;padding:24px;max-width:700px;width:100%;max-height:90vh;overflow-y:auto;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">' +
+        '<div><div style="font-size:17px;font-weight:800;color:var(--text);">📋 Chase Actions — ' + tenderName + '</div>' +
+        '<div style="font-size:12px;color:var(--muted);margin-top:3px;">' + deptList.length + ' department' + (deptList.length !== 1 ? 's' : '') + ' need to respond</div></div>' +
+        '<button onclick="document.getElementById(\'sk-dept-modal\').remove()" style="background:none;border:none;color:var(--muted);font-size:24px;cursor:pointer;">✕</button>' +
+      '</div>' +
+      '<div style="background:rgba(45,212,160,0.06);border:1px solid rgba(45,212,160,0.2);border-radius:8px;padding:10px 14px;margin:14px 0;font-size:12px;color:var(--muted);">Each department gets <strong style="color:#2dd4a0;">one email</strong> with all their questions. Copy or click Open email to send directly.</div>' +
+      cardsHTML +
+      '<div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">' +
+        '<button onclick="document.getElementById(\'sk-dept-modal\').remove()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:10px 18px;font-size:13px;color:var(--muted);cursor:pointer;width:100%;">Close</button>' +
+      '</div>' +
+    '</div>';
+
+    document.body.appendChild(modal);
+    modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+  };
+
+  function fixExportButton() {
+    document.querySelectorAll('button').forEach(function(btn) {
+      if (btn.textContent && btn.textContent.trim().includes('Export & Chase Actions') && !btn._skPatched) {
+        btn._skPatched = true;
+        btn.onclick = function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          window.showDeptChaseModal();
+        };
+      }
+    });
+  }
+
+  setTimeout(function() { fixExportButton(); autoScanForGaps(); }, 1200);
+
+  const _origShow = window.showSection;
+  window.showSection = function(id) {
+    if (typeof _origShow === 'function') _origShow(id);
+    if (id === 'builder') setTimeout(function() { fixExportButton(); autoScanForGaps(); }, 800);
+  };
+
+  new MutationObserver(function() { fixExportButton(); }).observe(document.body, { childList: true, subtree: true });
+
+})();
+</script>
+/body>
 </html>
