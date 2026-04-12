@@ -789,7 +789,7 @@
               <div style="background:var(--navy2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;font-size:13px;font-weight:700;color:var(--muted);white-space:nowrap;">
                 📎 Upload File
               </div>
-              <input type="file" accept=".csv,.txt,.pdf,.docx" style="display:none;" onchange="quickStartFromFile(this)">
+              <input type="file" accept=".csv,.txt,.pdf,.doc,.docx" style="display:none;" onchange="quickStartFromFile(this)">
             </label>
           </div>
         </div>
@@ -883,7 +883,7 @@
                   <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px;">Upload Tender Document</div>
                   <div style="font-size:11px;color:var(--muted);">CSV, TXT, or paste from portal<br>SKAI extracts all questions automatically</div>
                 </div>
-                <input type="file" id="ws-csv-upload" accept=".csv,.txt,.pdf" style="display:none;" onchange="handleWSFileUpload(this)">
+                <input type="file" id="ws-csv-upload" accept=".csv,.txt,.pdf,.doc,.docx" style="display:none;" onchange="handleWSFileUpload(this)">
               </label>
 
               <!-- Paste -->
@@ -1659,7 +1659,7 @@ Polo Shirt | 100 | £12.00
             <div class="upload-icon">📄</div>
             <div class="upload-text">Upload CSV, Excel or text file</div>
             <div class="upload-sub">Any format — SKAI will interpret it</div>
-            <input type="file" accept=".csv,.xlsx,.xls,.txt,.pdf" style="display:none;" onchange="wizHandleFile(this)">
+            <input type="file" accept=".csv,.xlsx,.xls,.txt,.pdf,.doc,.docx" style="display:none;" onchange="wizHandleFile(this)">
           </div>
         </label>
         <div style="display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;font-weight:600;">— or —</div>
@@ -3880,18 +3880,102 @@ function wizHandleFile(input) {
   const file = input.files[0];
   if (!file) return;
   _wizFileName = file.name;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    _wizFileContent = e.target.result;
-    const badge = document.getElementById('wiz-file-badge');
-    const zone = document.getElementById('wiz-upload-zone');
+  const ext = file.name.split('.').pop().toLowerCase();
+  const badge = document.getElementById('wiz-file-badge');
+  const zone = document.getElementById('wiz-upload-zone');
+
+  const showBadge = (text) => {
     if (badge) {
       badge.style.display = 'block';
-      badge.innerHTML = `✓ <strong>${file.name}</strong> loaded (${Math.round(file.size/1024)}KB) — SKAI will read this`;
+      badge.innerHTML = text;
     }
     if (zone) zone.style.borderColor = 'rgba(16,185,129,0.5)';
   };
-  reader.readAsText(file);
+
+  if (['doc','docx'].includes(ext)) {
+    // Word docs — read as ArrayBuffer, extract raw text via regex on binary
+    showBadge(`⏳ Reading <strong>${file.name}</strong>...`);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        // Extract readable text from docx/doc binary
+        const arr = new Uint8Array(e.target.result);
+        let text = '';
+        // For docx: look for XML text content between tags
+        const str = new TextDecoder('utf-8', {fatal: false}).decode(arr);
+        // Pull text between XML tags — covers docx word/document.xml content
+        const matches = str.match(/(?<=<w:t[^>]*>)[^<]+(?=<\/w:t>)/g) || [];
+        if (matches.length > 5) {
+          text = matches.join(' ').replace(/\s+/g,' ').trim();
+        } else {
+          // Fallback: pull any readable ASCII runs (works for older .doc)
+          text = str.replace(/[^ -~
+
+	]/g,' ').replace(/\s{3,}/g,'
+').trim();
+          // Remove obvious binary garbage lines
+          text = text.split('
+').filter(l => {
+            const readable = l.replace(/[^ -~]/g,'').length;
+            return readable > l.length * 0.6 && l.trim().length > 3;
+          }).join('
+');
+        }
+        if (text.length < 50) {
+          showBadge('⚠️ Could not read <strong>' + file.name + '</strong> — try copying and pasting the text instead');
+          return;
+        }
+        _wizFileContent = text;
+        showBadge('✓ <strong>' + file.name + '</strong> loaded (' + Math.round(file.size/1024) + 'KB) — SKAI will read this');
+      } catch(err) {
+        showBadge('⚠️ Could not read <strong>' + file.name + '</strong> — try copying and pasting the text instead');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+
+  } else if (ext === 'pdf') {
+    // PDF — store as data URL, SKAI gets a note to treat as PDF
+    showBadge(`⏳ Reading <strong>${file.name}</strong>...`);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      // Try to extract text from PDF binary
+      const arr = new Uint8Array(e.target.result);
+      const str = new TextDecoder('latin1').decode(arr);
+      // Extract text between BT/ET markers (PDF text blocks)
+      const btEt = str.match(/BT[\s\S]*?ET/g) || [];
+      let text = '';
+      btEt.forEach(block => {
+        const tjs = block.match(/\(([^)]+)\)/g) || [];
+        tjs.forEach(t => { text += t.slice(1,-1).replace(/\n/g,'
+') + ' '; });
+      });
+      if (text.trim().length < 50) {
+        // Fallback: pull readable strings
+        text = str.replace(/[^ -~
+]/g,' ').replace(/\s{3,}/g,'
+');
+        text = text.split('
+').filter(l => l.trim().length > 8 && /[a-zA-Z]{3,}/.test(l)).join('
+');
+      }
+      if (text.trim().length < 50) {
+        showBadge('⚠️ This PDF may be image-based and cannot be read directly. Try copying and pasting the text instead, or use a Word document.');
+        return;
+      }
+      _wizFileContent = text.trim();
+      showBadge('✓ <strong>' + file.name + '</strong> loaded (' + Math.round(file.size/1024) + 'KB) — SKAI will read this');
+    };
+    reader.readAsArrayBuffer(file);
+
+  } else {
+    // Plain text, CSV, TXT — read directly
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      _wizFileContent = e.target.result;
+      showBadge('✓ <strong>' + file.name + '</strong> loaded (' + Math.round(file.size/1024) + 'KB) — SKAI will read this');
+    };
+    reader.readAsText(file);
+  }
 }
 
 async function wizardRunSKAI() {
@@ -6796,7 +6880,19 @@ function quickStartFromFile(input) {
       }
     }, 300);
   };
-  reader.readAsText(file);
+  if (['doc','docx'].includes(file.name.split('.').pop().toLowerCase())) {
+    var _r2 = new FileReader();
+    _r2.onload = function(ev) {
+      var arr = new Uint8Array(ev.target.result);
+      var str = new TextDecoder('utf-8',{fatal:false}).decode(arr);
+      var m = str.match(/(?<=<w:t[^>]*>)[^<]+(?=<\/w:t>)/g)||[];
+      var txt = m.length>5 ? m.join(' ') : str.replace(/[^\x20-\x7E\n]/g,' ').replace(/\s{3,}/g,'\n');
+      reader.onload({target:{result:txt}});
+    };
+    _r2.readAsArrayBuffer(file);
+  } else {
+    reader.readAsText(file);
+  }
 }
 
 function showWSQuestionPaste() {
@@ -6835,7 +6931,19 @@ function handleWSFileUpload(input) {
     renderQuestionsToWorkspace(lines);
     showVaultToast(`${lines.length} questions loaded from ${file.name}`);
   };
-  reader.readAsText(file);
+  if (['doc','docx'].includes(file.name.split('.').pop().toLowerCase())) {
+    var _r2 = new FileReader();
+    _r2.onload = function(ev) {
+      var arr = new Uint8Array(ev.target.result);
+      var str = new TextDecoder('utf-8',{fatal:false}).decode(arr);
+      var m = str.match(/(?<=<w:t[^>]*>)[^<]+(?=<\/w:t>)/g)||[];
+      var txt = m.length>5 ? m.join(' ') : str.replace(/[^\x20-\x7E\n]/g,' ').replace(/\s{3,}/g,'\n');
+      reader.onload({target:{result:txt}});
+    };
+    _r2.readAsArrayBuffer(file);
+  } else {
+    reader.readAsText(file);
+  }
 }
 
 function renderQuestionsToWorkspace(questions) {
