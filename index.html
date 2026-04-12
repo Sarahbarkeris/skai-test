@@ -8780,3 +8780,285 @@ window.deleteTenderWorkspace = function(id, e) {
 </script>
 </body>
 </html>
+
+<!-- ============================================================
+     SOUTHKEY: PERFORMANCE DASHBOARD CHART
+     Live win/loss tracker, pipeline view, trends by month
+     Reads from real tender data in localStorage
+     ============================================================ -->
+<script>
+(function() {
+
+// ── BUILD THE CHART PANEL AND INJECT INTO DASHBOARD ──────────────────────
+function buildPerformancePanel() {
+  if (document.getElementById('sk-perf-panel')) return;
+  var dashboard = document.getElementById('section-dashboard');
+  if (!dashboard) return;
+
+  var panel = document.createElement('div');
+  panel.id = 'sk-perf-panel';
+  panel.style.cssText = 'margin-bottom:24px;';
+  panel.innerHTML =
+    '<div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px;">' +
+        '<div>' +
+          '<div style="font-family:\'Syne\',sans-serif;font-size:15px;font-weight:700;color:var(--text);">📊 Tender Performance</div>' +
+          '<div style="font-size:11px;color:var(--muted);margin-top:2px;">Live from your tender records</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;">' +
+          '<button onclick="skPerfFilter(\'all\')" id="sk-pf-all" style="padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;background:rgba(124,58,237,0.2);color:#a78bfa;border:1px solid rgba(124,58,237,0.3);">All time</button>' +
+          '<button onclick="skPerfFilter(\'year\')" id="sk-pf-year" style="padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:var(--muted);border:1px solid var(--border);">This year</button>' +
+          '<button onclick="skPerfFilter(\'quarter\')" id="sk-pf-quarter" style="padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:var(--muted);border:1px solid var(--border);">Quarter</button>' +
+        '</div>' +
+      '</div>' +
+
+      // Stat row
+      '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:18px;" id="sk-perf-stats"></div>' +
+
+      // Chart
+      '<div style="position:relative;height:160px;margin-bottom:4px;">' +
+        '<canvas id="sk-perf-canvas" style="width:100%;height:100%;"></canvas>' +
+        '<div id="sk-perf-empty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;text-align:center;display:none;">No tender data yet — start logging outcomes to see your progress here.</div>' +
+      '</div>' +
+      '<div id="sk-perf-legend" style="display:flex;gap:16px;justify-content:center;font-size:11px;color:var(--muted);margin-top:8px;flex-wrap:wrap;"></div>' +
+    '</div>';
+
+  // Insert after the three big doors grid
+  var doors = dashboard.querySelector('[style*="grid-template-columns:1fr 1fr 1fr"]');
+  if (doors && doors.nextSibling) {
+    dashboard.insertBefore(panel, doors.nextSibling);
+  } else {
+    dashboard.insertBefore(panel, dashboard.firstChild);
+  }
+
+  renderPerformance('all');
+}
+
+// ── LOAD ALL TENDER DATA ──────────────────────────────────────────────────
+function getAllTenders() {
+  var all = [];
+  ['skai-tenders-v1','skai-tenders-v2'].forEach(function(k) {
+    try {
+      var t = JSON.parse(localStorage.getItem(k) || '[]');
+      t.forEach(function(item) {
+        if (!all.find(function(x){ return x.id === item.id; })) all.push(item);
+      });
+    } catch(e) {}
+  });
+  return all;
+}
+
+// ── FILTER AND RENDER ─────────────────────────────────────────────────────
+window.skPerfFilter = function(period) {
+  ['all','year','quarter'].forEach(function(p) {
+    var btn = document.getElementById('sk-pf-' + p);
+    if (!btn) return;
+    if (p === period) {
+      btn.style.background = 'rgba(124,58,237,0.2)';
+      btn.style.color = '#a78bfa';
+      btn.style.borderColor = 'rgba(124,58,237,0.3)';
+    } else {
+      btn.style.background = 'transparent';
+      btn.style.color = 'var(--muted)';
+      btn.style.borderColor = 'var(--border)';
+    }
+  });
+  renderPerformance(period);
+};
+
+function renderPerformance(period) {
+  var tenders = getAllTenders();
+  var now = new Date();
+
+  // Filter by period
+  if (period === 'year') {
+    tenders = tenders.filter(function(t) {
+      var d = new Date(t.updated || t.created);
+      return d.getFullYear() === now.getFullYear();
+    });
+  } else if (period === 'quarter') {
+    var qStart = new Date(now.getFullYear(), Math.floor(now.getMonth()/3)*3, 1);
+    tenders = tenders.filter(function(t) {
+      return new Date(t.updated || t.created) >= qStart;
+    });
+  }
+
+  // Count by status
+  var won = tenders.filter(function(t){ return t.status === 'Won'; }).length;
+  var lost = tenders.filter(function(t){ return t.status === 'Lost'; }).length;
+  var submitted = tenders.filter(function(t){ return t.status === 'Submitted'; }).length;
+  var inProgress = tenders.filter(function(t){ return t.status === 'In Progress'; }).length;
+  var draft = tenders.filter(function(t){ return t.status === 'Draft' || !t.status; }).length;
+  var total = tenders.length;
+  var decided = won + lost;
+  var winRate = decided > 0 ? Math.round((won / decided) * 100) : null;
+
+  // Render stat cards
+  var statsEl = document.getElementById('sk-perf-stats');
+  if (statsEl) {
+    statsEl.innerHTML = [
+      { label: 'Won', value: won, colour: '#10b981', bg: 'rgba(16,185,129,0.1)', border: 'rgba(16,185,129,0.25)' },
+      { label: 'Lost', value: lost, colour: '#ef4444', bg: 'rgba(239,68,68,0.1)', border: 'rgba(239,68,68,0.25)' },
+      { label: 'Submitted', value: submitted, colour: '#93c5fd', bg: 'rgba(147,197,253,0.1)', border: 'rgba(147,197,253,0.25)' },
+      { label: 'In Progress', value: inProgress, colour: '#a78bfa', bg: 'rgba(167,139,250,0.1)', border: 'rgba(167,139,250,0.25)' },
+      { label: 'Win Rate', value: winRate !== null ? winRate + '%' : '—', colour: winRate >= 50 ? '#10b981' : winRate !== null ? '#f59e0b' : 'var(--muted)', bg: 'rgba(255,255,255,0.03)', border: 'var(--border)' },
+    ].map(function(s) {
+      return '<div style="background:' + s.bg + ';border:1px solid ' + s.border + ';border-radius:10px;padding:12px;text-align:center;">' +
+        '<div style="font-family:\'Syne\',sans-serif;font-size:22px;font-weight:800;color:' + s.colour + ';">' + s.value + '</div>' +
+        '<div style="font-size:10px;font-weight:600;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:0.3px;">' + s.label + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  // Build monthly data for chart (last 6 months)
+  var months = [];
+  for (var i = 5; i >= 0; i--) {
+    var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({
+      label: d.toLocaleDateString('en-GB', {month:'short'}),
+      year: d.getFullYear(),
+      month: d.getMonth(),
+      won: 0, lost: 0, submitted: 0, active: 0
+    });
+  }
+
+  getAllTenders().forEach(function(t) {
+    var d = new Date(t.updated || t.created);
+    var m = months.find(function(mo){ return mo.year === d.getFullYear() && mo.month === d.getMonth(); });
+    if (!m) return;
+    if (t.status === 'Won') m.won++;
+    else if (t.status === 'Lost') m.lost++;
+    else if (t.status === 'Submitted') m.submitted++;
+    else if (t.status === 'In Progress') m.active++;
+  });
+
+  drawChart(months, total);
+}
+
+// ── DRAW BAR CHART ────────────────────────────────────────────────────────
+function drawChart(months, total) {
+  var canvas = document.getElementById('sk-perf-canvas');
+  var emptyEl = document.getElementById('sk-perf-empty');
+  var legendEl = document.getElementById('sk-perf-legend');
+  if (!canvas) return;
+
+  var ctx = canvas.getContext('2d');
+  var dpr = window.devicePixelRatio || 1;
+  var rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = 160 * dpr;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = '160px';
+  ctx.scale(dpr, dpr);
+
+  var W = rect.width;
+  var H = 160;
+  var padL = 28, padR = 10, padT = 10, padB = 28;
+  var chartW = W - padL - padR;
+  var chartH = H - padT - padB;
+
+  // Clear
+  ctx.clearRect(0, 0, W, H);
+
+  // Check if any data
+  var hasData = months.some(function(m){ return m.won + m.lost + m.submitted + m.active > 0; });
+  if (!hasData && total === 0) {
+    if (emptyEl) emptyEl.style.display = 'flex';
+    if (legendEl) legendEl.innerHTML = '';
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  var maxVal = Math.max(1, Math.max.apply(null, months.map(function(m){
+    return m.won + m.lost + m.submitted + m.active;
+  })));
+
+  var barGroupW = chartW / months.length;
+  var barW = Math.min(barGroupW * 0.5, 28);
+  var colours = {
+    won: '#10b981', lost: '#ef4444', submitted: '#93c5fd', active: '#a78bfa'
+  };
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  [0.25, 0.5, 0.75, 1].forEach(function(pct) {
+    var y = padT + chartH * (1 - pct);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + chartW, y); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.font = '9px DM Sans, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(Math.round(maxVal * pct), padL - 4, y + 3);
+  });
+
+  // Bars — stacked
+  months.forEach(function(m, i) {
+    var x = padL + i * barGroupW + (barGroupW - barW) / 2;
+    var stackOrder = ['active','submitted','lost','won'];
+    var yOff = 0;
+
+    stackOrder.forEach(function(key) {
+      var val = m[key];
+      if (!val) return;
+      var barH = (val / maxVal) * chartH;
+      var y = padT + chartH - yOff - barH;
+      ctx.fillStyle = colours[key];
+      ctx.beginPath();
+      ctx.roundRect(x, y, barW, barH, yOff === 0 ? [0,0,3,3] : 0);
+      ctx.fill();
+      yOff += barH;
+    });
+
+    // Month label
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = '10px DM Sans, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(m.label, x + barW/2, padT + chartH + 16);
+  });
+
+  // Legend
+  if (legendEl) {
+    legendEl.innerHTML = [
+      { key: 'won', label: 'Won' },
+      { key: 'lost', label: 'Lost' },
+      { key: 'submitted', label: 'Submitted' },
+      { key: 'active', label: 'In Progress' },
+    ].map(function(l) {
+      return '<span style="display:inline-flex;align-items:center;gap:5px;">' +
+        '<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:' + colours[l.key] + ';"></span>' +
+        l.label + '</span>';
+    }).join('');
+  }
+}
+
+// ── HOOK INTO SHOW SECTION + UPDATE STATS ────────────────────────────────
+var _origShowSec = window.showSection;
+window.showSection = function(id) {
+  if (typeof _origShowSec === 'function') _origShowSec(id);
+  if (id === 'dashboard') {
+    setTimeout(function() {
+      buildPerformancePanel();
+      renderPerformance('all');
+    }, 200);
+  }
+};
+
+// Also hook updateHomeStats so chart refreshes when tenders change
+var _origUpdateHome = window.updateHomeStats;
+window.updateHomeStats = function() {
+  if (typeof _origUpdateHome === 'function') _origUpdateHome();
+  if (document.getElementById('sk-perf-panel')) {
+    renderPerformance('all');
+  }
+};
+
+// Init on load
+setTimeout(function() {
+  buildPerformancePanel();
+  renderPerformance('all');
+}, 800);
+
+})();
+</script>
+</body>
+</html>
