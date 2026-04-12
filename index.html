@@ -943,6 +943,8 @@
             <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
               <button onclick="addManualQuestion()" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 12px;font-size:11px;color:var(--muted);cursor:pointer;">+ Add question</button>
               <button onclick="showActionNeededDigest()" id="export-answers-btn" style="display:none;background:linear-gradient(135deg,#10b981,#059669);color:white;border:none;border-radius:6px;padding:5px 14px;font-size:11px;font-weight:700;cursor:pointer;">📋 Export & Chase Actions</button>
+              <button onclick="signOffAllAnswers()" id="sk-signoff-all-btn" style="display:none;background:linear-gradient(135deg,rgba(16,185,129,0.25),rgba(5,150,105,0.15));color:#10b981;border:1px solid rgba(16,185,129,0.4);border-radius:6px;padding:5px 14px;font-size:11px;font-weight:700;cursor:pointer;">✓ Sign off all</button>
+              <div id="sk-signoff-progress" style="display:none;font-size:11px;color:var(--muted);padding:0 4px;"></div>
               <button onclick="clearAllQuestions()" style="margin-left:auto;background:none;border:none;color:rgba(239,68,68,0.5);font-size:11px;cursor:pointer;">Clear all</button>
             </div>
           </div>
@@ -5846,6 +5848,8 @@ function openTenderWorkspace(id) {
   if (tender.questions?.length) {
     document.getElementById('generate-all-btn').style.display = 'inline-flex';
     document.getElementById('export-answers-btn').style.display = 'inline-flex';
+    var sob = document.getElementById('sk-signoff-all-btn'); if (sob) sob.style.display = 'inline-flex';
+    updateReviewSummary();
   }
   switchWsTab('questions');
 }
@@ -6019,10 +6023,10 @@ function buildQuestionBlock(qText, num, answer, isDone, isReviewed) {
       <button onclick="toggleRefPanel(${num})" id="ref-toggle-btn-${num}" style="background:rgba(59,130,246,0.1);color:#93c5fd;border:1px solid rgba(59,130,246,0.25);border-radius:6px;padding:5px 12px;font-size:11px;font-weight:600;cursor:pointer;" title="Add references and supporting documents">
         📎 References${savedRefs.refs.length+savedRefs.contacts.length > 0 ? ' <span style="background:#3b82f6;color:white;border-radius:10px;padding:0 5px;font-size:9px;">'+( savedRefs.refs.length+savedRefs.contacts.length)+'</span>' : ''}
       </button>
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:auto;" title="Tick once you have read, edited and are happy with this answer">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:auto;" title="Click to sign off this answer — confirms you have read, edited and are happy with it">
         <input type="checkbox" class="q-reviewed" id="reviewed-${num}" ${reviewed?'checked':''} onchange="markReviewed(${num})"
-          style="width:14px;height:14px;accent-color:#10b981;cursor:pointer;">
-        <span id="reviewed-label-${num}" style="font-size:11px;font-weight:600;color:${reviewed?'#10b981':'var(--muted)'};">${reviewed?'✓ Approved':'Approve answer'}</span>
+          style="width:15px;height:15px;accent-color:#10b981;cursor:pointer;">
+        <span id="reviewed-label-${num}" style="font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px;border:1px solid ${reviewed?'rgba(16,185,129,0.4)':'rgba(255,255,255,0.1)'};background:${reviewed?'rgba(16,185,129,0.1)':'rgba(255,255,255,0.04)'};color:${reviewed?'#10b981':'var(--muted)'};">${reviewed?'✓ Signed off':"I've checked this"}</span>
       </label>
       <button onclick="wsRemoveQuestion(${num})" style="background:none;border:none;color:rgba(239,68,68,0.4);font-size:11px;cursor:pointer;padding:4px 8px;">✕</button>
     </div>
@@ -6351,7 +6355,7 @@ function markReviewed(num) {
   const block = cb?.closest('.question-block');
   const checked = cb?.checked;
   if (label) {
-    label.textContent = checked ? '✓ Approved' : 'Approve answer';
+    label.textContent = checked ? '✓ Signed off' : "I've checked this";
     label.style.color = checked ? '#10b981' : 'var(--muted)';
   }
   if (block) {
@@ -6360,6 +6364,26 @@ function markReviewed(num) {
   }
   updateReviewSummary();
   saveTenderWorkspace();
+}
+
+function signOffAllAnswers() {
+  const blocks = document.querySelectorAll('#questions-container .question-block');
+  if (!blocks.length) return;
+  let count = 0;
+  blocks.forEach((_, i) => {
+    const cb = document.getElementById('reviewed-' + (i+1));
+    if (cb && !cb.checked) {
+      cb.checked = true;
+      markReviewed(i+1);
+      count++;
+    }
+  });
+  updateReviewSummary();
+  if (typeof showVaultToast === 'function') {
+    showVaultToast(count > 0
+      ? '✓ All ' + blocks.length + ' answers signed off'
+      : '✓ Already all signed off');
+  }
 }
 
 function getReviewedStatuses() {
@@ -6379,6 +6403,26 @@ function updateReviewSummary() {
   blocks.forEach((_, i) => {
     if (document.getElementById('reviewed-' + (i+1))?.checked) reviewed++;
   });
+
+  // Show/hide sign-off all button
+  const signOffBtn = document.getElementById('sk-signoff-all-btn');
+  const signOffProgress = document.getElementById('sk-signoff-progress');
+  if (signOffBtn) signOffBtn.style.display = total > 0 ? 'inline-flex' : 'none';
+  if (signOffProgress && total > 0) {
+    signOffProgress.style.display = 'inline-flex';
+    const allDone = reviewed === total;
+    signOffProgress.innerHTML = allDone
+      ? '<span style="color:#10b981;font-weight:700;">✓ All ' + total + ' signed off</span>'
+      : '<span>' + reviewed + ' / ' + total + ' signed off</span>';
+    if (signOffBtn) {
+      signOffBtn.textContent = allDone ? '✓ All signed off' : '✓ Sign off all';
+      signOffBtn.style.background = allDone
+        ? 'linear-gradient(135deg,#10b981,#059669)'
+        : 'linear-gradient(135deg,rgba(16,185,129,0.25),rgba(5,150,105,0.15))';
+      signOffBtn.style.color = allDone ? 'white' : '#10b981';
+    }
+  }
+
   // Update the count label with review progress
   const label = document.getElementById('qs-count-label');
   if (label && reviewed > 0) {
@@ -7501,14 +7545,10 @@ if (document.readyState !== 'loading') {
 
     var approveBtn = document.createElement('button');
     approveBtn.id = 'sk-approve-btn';
-    approveBtn.textContent = '✓ Approve all answers';
+    approveBtn.textContent = '✓ Sign off all answers';
     approveBtn.style.cssText = 'background:linear-gradient(135deg,#2dd4a0,#0d9e6e);color:white;border:none;border-radius:6px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer;margin-right:8px;';
     approveBtn.onclick = function() {
-      document.querySelectorAll('input[type="checkbox"]').forEach(function(cb) { if (!cb.checked) cb.click(); });
-      if (window._wsQuestions) window._wsQuestions.forEach(function(q) { q.approved = true; });
-      approveBtn.textContent = '✓ All approved';
-      approveBtn.style.background = '#10b981';
-      if (typeof showVaultToast === 'function') showVaultToast('✓ All answers approved');
+      if (typeof signOffAllAnswers === 'function') signOffAllAnswers();
     };
     clearBtn.parentNode.insertBefore(approveBtn, clearBtn);
 
