@@ -1918,26 +1918,46 @@ const EUROX_PROFILE = [
   'learnings, impactful, actionable, scalable, agile (unless referring to a specific methodology),',
   'ensure (say: make sure), endeavour (say: try), therefore, whereby, herein, aforementioned.',
   '',
-  'STYLE RULES:',
-  '- Start with a fact, a number, or a direct statement. Never start with "We are pleased to", "As a company", "Our approach is".',
-  '- Vary sentence length deliberately. Short punchy sentences land harder. Longer explanatory sentences give context and detail.',
-  '- Use contractions occasionally — "we have" can sometimes be "we have got" — sounds more human.',
-  '- Name specific clients, contracts, certifications, dates, numbers. Vague claims mean nothing.',
-  '- Write in active voice. "We supply" not "PPE is supplied by us".',
-  '- One idea per paragraph. Keep paragraphs short — 2-4 sentences maximum.',
-  '- If a question asks for a process, describe it as a sequence of real steps, not as a policy statement.',
-  '- If a question asks about experience, lead with a named client or contract, not a claim about capability.',
-  '- Do not over-answer. 150-250 words is usually right. Longer only if the question genuinely needs it.',
-  '- No bullet points unless the question specifically asks for a list.',
-  '- No markdown, no bold, no headers in the answer text itself.',
+  'STYLE RULES — LEARNED FROM REAL EUROX TENDER SUBMISSIONS:',
+  '- Start with a fact, a number, or a direct statement. Never with "We are pleased to", "As a company", "Our approach is", "We would like to", "In order to".',
+  '- Be honest about gaps. If something is not available, say so plainly and state what you ARE offering instead. Do not fudge.',
+  '- Cite standards by exact name: EN ISO 11612:2015, EN 388:2016, EN14683 — not "relevant standards" or "applicable regulations".',
+  '- Use product codes where known. "EP133 at £3.95" lands harder than "a range of eye protection options".',
+  '- If offering multiple alternatives, list them inline with prices. Do not pick one and hide the others.',
+  '- Lead times and MOQs: state them exactly. "3 days", "NO MOQ", "minimum 1000 units". Never "within a reasonable timeframe".',
+  '- Short sentences carry more weight than long ones. One idea per sentence. One idea per paragraph.',
+  '- No bullet points in free-text answers unless the question specifically asks for a list. Write in prose.',
+  '- No markdown, no bold, no headers inside the answer. Plain text only.',
+  '- Do not over-answer. 150-250 words is right for most questions.',
+  '- Active voice always. "We supply", "We manufacture", "We hold stock".',
+  '- Name things: clients, contracts, dates, certification bodies, product codes, numbers. Vague claims score nothing.',
+  '- If a question asks for a process, describe what actually happens, in order, by whom.',
+  '- If a question asks about experience, open with a named client or contract, not a capability claim.',
+  '',
+  'BANNED WORDS AND PHRASES — NEVER USE THESE:',
+  '- Furthermore, Moreover, Additionally, In conclusion, In summary, It is worth noting, It should be noted, Please note that',
+  '- We are pleased to, We would like to, We are committed to, We strive to, We endeavour to',
+  '- robust, seamless, holistic, comprehensive, cutting-edge, state-of-the-art, best-in-class, innovative solution',
+  '- leverage, utilise, streamline, demonstrate, evidenced by, going forward, moving forward',
+  '- in order to (use: to), prior to (use: before), subsequent to (use: after), commence (use: start)',
+  '- Never use dashes as bullet points. Never use em-dashes mid-sentence as a stylistic tic.',
+  '',
+  'WHAT PUBLIC SECTOR BUYERS ACTUALLY WANT — LEARNED FROM REAL ESPO/BCC TENDERS:',
+  '- PPE compliance questions: describe the actual checking process, not that you comply.',
+  '- Supply chain questions: ethical procurement specifics, how you select suppliers, contingency when a supplier fails.',
+  '- Stockholding/urgency: where stock is held, how much, what the emergency response looks like in practice.',
+  '- Customer satisfaction: review processes, how you adapt the product range over the life of the contract.',
+  '- Mobilisation: real plan with timescales. Name what happens in week 1, week 4, month 3.',
+  '- Social value: specific measurable commitments — apprentices, local spend, environmental targets — not warm words.',
+  '- Returns: the actual process. Who contacts who, the paperwork, the turnaround time.',
   '',
   'HUMANISING TECHNIQUES:',
-  '- Occasionally acknowledge the reality of the question: "Most suppliers will say X. In practice, we do Y."',
-  '- Use plain numbers: "roughly 200 staff", "over 35 years", "since January 2026" — not "approximately two hundred personnel".',
-  '- Lead with what makes Eurox genuinely different: we manufacture. Most PPE suppliers buy and resell. We make it.',
-  '- When answering compliance or policy questions, describe what actually happens day-to-day, not what the policy document says.',
+  '- Name the reality: "Most suppliers buy and resell. We manufacture, which means we control the specification."',
+  '- Use plain numbers: "roughly 200 staff", "over 35 years", "since January 2026".',
+  '- If something is unconfirmed, say so directly: "Currently awaiting confirmation from the manufacturer."',
+  '- When describing certifications, say what they mean for this contract — not just the certificate name.',
   '',
-  'OUTPUT: Return the answer text only. Nothing else. No preamble, no "here is the answer", no "certainly". The answer must be ready to paste directly into a tender portal.'
+  'OUTPUT: Return the answer text only. No preamble, no "here is the answer", no "certainly", no "I have drafted". Paste-ready.'
 ].join('\n');
 
 // ===== VAULT + SYSTEM PROMPT =====
@@ -5709,29 +5729,20 @@ function createNewTenderWorkspace(prefill) {
 }
 
 function deleteTenderWorkspace(id, e) {
-  e.stopPropagation();
-  if (!confirm('Delete this tender? This cannot be undone.')) return;
+  if (e) { e.stopPropagation(); e.preventDefault(); }
+  if (typeof window.skDeleteTender === 'function') { window.skDeleteTender(id); return; }
+  // Fallback if skDeleteTender not loaded yet
+  if (!confirm('Remove this tender? Your vault and company data are not affected.')) return;
   const tenders = getTenders().filter(t => t.id !== id);
   saveTenders(tenders);
   if (_activeTenderId === id) {
     _activeTenderId = null;
-    // Clear the questions container
     const qc = document.getElementById('questions-container');
     if (qc) qc.innerHTML = '';
-    // Reset to empty state
     const emptyState = document.getElementById('workspace-empty');
     const activeState = document.getElementById('workspace-active');
     if (emptyState) emptyState.style.display = 'flex';
     if (activeState) activeState.style.display = 'none';
-    // Clear the paste box so old questions don't persist
-    const pasteBox = document.getElementById('quick-paste-questions');
-    if (pasteBox) pasteBox.value = '';
-    // Hide loaded state, show empty state in questions panel
-    const qsLoaded = document.getElementById('qs-loaded-state');
-    const qsEmpty = document.getElementById('qs-empty-state');
-    if (qsLoaded) qsLoaded.style.display = 'none';
-    if (qsEmpty) qsEmpty.style.display = 'block';
-    // Clear quote lines
     quoteLines = [];
   }
   renderTenderSidebar();
@@ -5793,7 +5804,7 @@ function renderTenderSidebar() {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
           <span style="font-size:9px;font-weight:600;color:${colour};white-space:nowrap;">${t.status||'Draft'}</span>
-          <button onclick="deleteTenderWorkspace(${t.id},event)" style="background:none;border:none;color:rgba(255,255,255,0.2);font-size:11px;cursor:pointer;padding:0;line-height:1;" title="Delete">✕</button>
+          <button onclick="deleteTenderWorkspace(${t.id},event)" style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);color:rgba(239,68,68,0.7);border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;padding:2px 6px;line-height:1;" title="Remove tender">✕ Delete</button>
         </div>
       </div>
     </div>`;
@@ -7247,6 +7258,40 @@ window.deleteTenderFromList = function(id) {
         <button class="btn btn-primary" onclick="openVaultUpload()">+ Add Document</button>
       </div>
     </div>
+
+    <!-- PAST TENDER LIBRARY -->
+    <div id="past-tender-library" style="background:rgba(255,255,255,0.02);border:1px solid rgba(45,212,160,0.2);border-radius:14px;padding:20px;margin-bottom:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+        <div>
+          <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:8px;">
+            \u{1F4C2} Past Tender Library
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-top:3px;line-height:1.5;">
+            Upload old tenders you have already submitted. The system reads your questions and answers, learns how you write, and uses that in every future bid automatically.
+          </div>
+        </div>
+        <label style="cursor:pointer;flex-shrink:0;">
+          <div id="past-tender-upload-btn" style="background:linear-gradient(135deg,rgba(45,212,160,0.2),rgba(16,185,129,0.1));border:1px solid rgba(45,212,160,0.4);border-radius:8px;padding:8px 16px;font-size:12px;font-weight:700;color:#2dd4a0;white-space:nowrap;">
+            \u2B06 Upload Old Tender
+          </div>
+          <input type="file" id="past-tender-upload" accept=".pdf,.doc,.docx,.zip" multiple style="display:none;" onchange="handlePastTenderUpload(this)">
+        </label>
+      </div>
+      <div id="past-tender-progress" style="display:none;background:rgba(45,212,160,0.06);border:1px solid rgba(45,212,160,0.2);border-radius:8px;padding:12px;margin-bottom:12px;">
+        <div style="font-size:12px;font-weight:600;color:#2dd4a0;margin-bottom:6px;" id="past-tender-progress-label">Reading your tender...</div>
+        <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:4px;overflow:hidden;">
+          <div id="past-tender-progress-bar" style="height:100%;border-radius:4px;background:linear-gradient(90deg,#2dd4a0,#10b981);width:0%;transition:width 0.5s;"></div>
+        </div>
+      </div>
+      <div id="past-tender-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+      <div id="past-tender-empty" style="text-align:center;padding:20px;color:var(--muted);font-size:12px;line-height:1.6;">
+        No past tenders uploaded yet.<br>Upload a Word doc, PDF, or a zip of several tenders to get started.
+      </div>
+      <div id="past-tender-learned" style="display:none;margin-top:12px;padding:12px;background:rgba(45,212,160,0.06);border:1px solid rgba(45,212,160,0.15);border-radius:8px;font-size:12px;color:var(--muted);line-height:1.6;">
+        <strong style="color:#2dd4a0;">Learned from your past bids:</strong>
+        <div id="past-tender-learned-summary" style="margin-top:6px;"></div>
+      </div>
+    </div>
     <div class="grid-2 mb-16">
       <div class="card">
         <div class="card-title">📊 Vault Status</div>
@@ -7406,237 +7451,7 @@ if (document.readyState !== 'loading') {
      3. Clean preview (remove AI footer, tidy CONFIRM brackets)
      4. Export & Chase grouped by department with email
 -->
-<script>
-(function() {
 
-  function DEPT(text) {
-    var t = (text||'').toLowerCase();
-    if (/hr|human resource|staff|employee|employment|contract|vetting|dbs|background|recruitment/.test(t)) return 'HR Manager';
-    if (/\bit\b|data|gdpr|cyber|cloud|server|network|software|system|technology|retention|backup|security|dmarc/.test(t)) return 'Graham — IT';
-    if (/compliance|policy|accreditation|certification|iso|quality|audit|framework|legal|standard/.test(t)) return 'Mark — Compliance';
-    if (/procurement|supplier|supply|purchasing|vendor|sourcing|pricing|stock/.test(t)) return 'Harvy — Procurement';
-    if (/finance|financial|turnover|revenue|accounts|tax|vat|insurance/.test(t)) return 'Finance';
-    return 'HR Manager';
-  }
-
-  function findGaps(answer) {
-    if (!answer) return [];
-    var gaps = [];
-    var m;
-    var r1 = /\[CONFIRM:\s*([^\]]+)\]/gi;
-    while ((m = r1.exec(answer)) !== null) gaps.push(m[1].trim());
-    var r2 = /\[⚠[️]?\s*([^\]]+)\]/gi;
-    while ((m = r2.exec(answer)) !== null) {
-      var txt = m[1].replace(/check before submitting/i,'').trim();
-      if (txt.length > 5) gaps.push(txt);
-    }
-    if (answer.indexOf('ACTION NEEDED') !== -1) {
-      var am = answer.match(/ACTION NEEDED[^:]*:\s*["""']([^"""']{10,})["""']/);
-      if (am) gaps.push(am[1].trim());
-      else gaps.push('Action needed — see answer for details');
-    }
-    return gaps;
-  }
-
-  // 1. APPROVE ALL + DELETE BUTTONS
-  function injectButtons() {
-    if (document.getElementById('sk-approve-btn')) return;
-    var clearBtn = null;
-    document.querySelectorAll('button').forEach(function(btn) {
-      if (btn.textContent && btn.textContent.trim() === 'Clear all') clearBtn = btn;
-    });
-    if (!clearBtn) return;
-
-    var approveBtn = document.createElement('button');
-    approveBtn.id = 'sk-approve-btn';
-    approveBtn.textContent = '✓ Approve all answers';
-    approveBtn.style.cssText = 'background:linear-gradient(135deg,#2dd4a0,#0d9e6e);color:white;border:none;border-radius:6px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer;margin-right:8px;';
-    approveBtn.onclick = function() {
-      document.querySelectorAll('input[type="checkbox"]').forEach(function(cb) { if (!cb.checked) cb.click(); });
-      if (window._wsQuestions) window._wsQuestions.forEach(function(q) { q.approved = true; });
-      approveBtn.textContent = '✓ All approved';
-      approveBtn.style.background = '#10b981';
-      if (typeof showVaultToast === 'function') showVaultToast('✓ All answers approved');
-    };
-    clearBtn.parentNode.insertBefore(approveBtn, clearBtn);
-
-    var deleteBtn = document.createElement('button');
-    deleteBtn.id = 'sk-delete-btn';
-    deleteBtn.textContent = '🗑 Delete tender';
-    deleteBtn.style.cssText = 'background:none;border:1px solid rgba(239,68,68,0.4);color:rgba(239,68,68,0.8);border-radius:6px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;margin-left:8px;';
-    deleteBtn.onclick = function() {
-      if (!confirm('Delete this tender? This cannot be undone.')) return;
-      if (window._wsQuestions) window._wsQuestions = [];
-      if (window._activeTenderId) {
-        ['skai-tenders-v1','skai-tenders-v2'].forEach(function(k) {
-          var list = JSON.parse(localStorage.getItem(k)||'[]').filter(function(t){return t.id!==window._activeTenderId;});
-          localStorage.setItem(k, JSON.stringify(list));
-        });
-        window._activeTenderId = null;
-      }
-      var qc = document.getElementById('questions-container');
-      if (qc) qc.innerHTML = '';
-      if (typeof renderTenderSidebar==='function') renderTenderSidebar();
-      if (typeof updateHomeStats==='function') updateHomeStats();
-      if (typeof showVaultToast==='function') showVaultToast('Tender deleted');
-    };
-    clearBtn.parentNode.appendChild(deleteBtn);
-  }
-
-  setTimeout(injectButtons, 1000);
-  new MutationObserver(function() {
-    if (!document.getElementById('sk-approve-btn')) injectButtons();
-  }).observe(document.body, { childList: true, subtree: true });
-
-  // 2. CLEAN PREVIEW
-  var __realOpen = window.open;
-  window.open = function(url, name, features) {
-    var w = __realOpen.call(this, url, name, features);
-    if (w && w.document && w.document.write) {
-      var _orig = w.document.write.bind(w.document);
-      w.document.write = function(html) {
-        if (typeof html === 'string') {
-          html = html
-            .replace(/[✦•*]?\s*Drafted with SKAI Intelligence[\s\S]{0,60}Human reviewed/g, '')
-            .replace(/[^<]*/g, '')
-            .replace(/SKAI Intelligence is thinking\.\.\./g, 'Working on it...')
-            .replace(/Using your company vault and content library/g, 'Preparing your response...')
-            .replace(/\[CONFIRM:[^\]]*\]/g, '<mark style="background:#fff3cd;padding:1px 5px;border-radius:3px;font-size:11px;color:#856404;font-weight:600;">⚠ Confirm before submitting</mark>')
-            .replace(/\[⚠[️]?[^\]]*\]/g, '')
-            .replace(/check before submitting/g, '');
-        }
-        return _orig(html);
-      };
-    }
-    return w;
-  };
-
-  // 3. EXPORT & CHASE MODAL
-  function showChaseModal() {
-    var qs = window._wsQuestions || [];
-    var tenderName = 'This Tender';
-    var tn = document.querySelector('[class*="tender-name"], #ws-tender-name');
-    if (tn && tn.textContent.trim()) tenderName = tn.textContent.trim();
-    var inp = document.querySelector('input[placeholder*="tender"], input[placeholder*="Tender"], input[placeholder*="Organisation"]');
-    if (inp && inp.value.trim()) tenderName = inp.value.trim();
-
-    var groups = {};
-    var total = 0;
-
-    qs.forEach(function(q, i) {
-      var answer = q.answer || '';
-      var gaps = findGaps(answer);
-      if (!gaps.length) return;
-      var qText = q.question || q.text || ('Question ' + (i + 1));
-      var dept = DEPT(qText + ' ' + answer);
-      if (!groups[dept]) groups[dept] = [];
-      groups[dept].push({ num: i + 1, question: qText, gap: gaps[0] });
-      total++;
-    });
-
-    var list = Object.entries(groups);
-
-    if (!list.length) {
-      if (typeof showVaultToast === 'function') showVaultToast('✓ No gaps found — all answers complete');
-      else alert('No gaps found — all answers complete.');
-      return;
-    }
-
-    var old = document.getElementById('sk-chase-modal');
-    if (old) old.remove();
-
-    var modal = document.createElement('div');
-    modal.id = 'sk-chase-modal';
-    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
-
-    var cards = list.map(function(entry) {
-      var dept = entry[0];
-      var items = entry[1];
-      var firstName = dept.split(/[\s—]/)[0];
-
-      var dlv = (document.getElementById('ws-tender-deadline')||{}).value||'';
-      var dln = dlv ? 'If you could come back to me by ' + new Date(dlv).toLocaleDateString('en-GB',{day:'numeric',month:'long'}) + ' that would be great.' : 'If you could get back to me by end of this week that would be brilliant.';
-      var body = 'Hi ' + firstName + ',\n\nHope you are well. Just pulling together the ' + tenderName + ' bid and need a few things confirmed before we submit.\n\n' +
-        items.map(function(it, idx) {
-          return (idx + 1) + '. ' + it.question + '\n   ' + it.gap;
-        }).join('\n\n') +
-        '\n\n' + dln + '\n\nThanks';
-
-      var mailto = 'mailto:?subject=' + encodeURIComponent(tenderName + ' — a couple of things to check') +
-                   '&body=' + encodeURIComponent(body);
-      var cid = 'sk_c_' + Math.random().toString(36).substr(2, 6);
-
-      var rows = items.map(function(it) {
-        return '<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.07);">' +
-          '<span style="color:#2dd4a0;font-weight:700;font-size:12px;margin-right:6px;">Q' + it.num + '</span>' +
-          '<span style="font-size:12px;color:#e8f5f0;">' + it.question.substring(0, 80) + (it.question.length > 80 ? '...' : '') + '</span>' +
-          '<div style="font-size:11px;color:#f59e0b;margin-left:18px;margin-top:2px;">→ ' + it.gap.substring(0, 80) + '</div>' +
-        '</div>';
-      }).join('');
-
-      return '<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(45,212,160,0.2);border-radius:10px;padding:16px;margin-bottom:12px;">' +
-        '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">' +
-          '<div>' +
-            '<div style="font-size:14px;font-weight:800;color:#e8f5f0;">' + dept + '</div>' +
-            '<div style="font-size:11px;color:#8bbfaa;margin-top:2px;">' + items.length + ' item' + (items.length !== 1 ? 's' : '') + ' to confirm</div>' +
-          '</div>' +
-          '<div style="display:flex;gap:8px;">' +
-            '<button id="' + cid + '" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#e8f5f0;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;">📋 Copy email</button>' +
-            '<a href="' + mailto + '" target="_blank" style="background:linear-gradient(135deg,#2dd4a0,#0d9e6e);color:white;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:4px;">✉️ Open email</a>' +
-          '</div>' +
-        '</div>' +
-        '<div style="background:rgba(0,0,0,0.2);border-radius:6px;padding:8px 10px;">' + rows + '</div>' +
-        '<script>setTimeout(function(){var b=document.getElementById("' + cid + '");if(b)b.onclick=function(){navigator.clipboard.writeText(' + JSON.stringify(body) + ');this.textContent="✓ Copied!";var me=this;setTimeout(function(){me.textContent="📋 Copy email"},2500);}},300);<\/script>' +
-      '</div>';
-    }).join('');
-
-    modal.innerHTML =
-      '<div style="background:#0d2a20;border:1px solid rgba(45,212,160,0.3);border-radius:14px;padding:24px;max-width:700px;width:100%;max-height:90vh;overflow-y:auto;font-family:Arial,sans-serif;">' +
-        '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">' +
-          '<div>' +
-            '<div style="font-size:18px;font-weight:800;color:#e8f5f0;">📋 Chase Actions — ' + tenderName + '</div>' +
-            '<div style="font-size:12px;color:#8bbfaa;margin-top:3px;">' + total + ' item' + (total !== 1 ? 's' : '') + ' need input from ' + list.length + ' person' + (list.length !== 1 ? 's' : '') + ' before submission</div>' +
-          '</div>' +
-          '<button onclick="document.getElementById(\'sk-chase-modal\').remove()" style="background:none;border:none;color:#8bbfaa;font-size:26px;cursor:pointer;line-height:1;">✕</button>' +
-        '</div>' +
-        '<div style="background:rgba(45,212,160,0.08);border:1px solid rgba(45,212,160,0.2);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#8bbfaa;">' +
-          'One email per person with all their questions. <strong style="color:#2dd4a0;">Copy</strong> or <strong style="color:#2dd4a0;">Open email</strong> to send.' +
-        '</div>' +
-        cards +
-        '<button onclick="document.getElementById(\'sk-chase-modal\').remove()" style="width:100%;background:none;border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:10px;font-size:13px;color:#8bbfaa;cursor:pointer;margin-top:8px;">Close</button>' +
-      '</div>';
-
-    document.body.appendChild(modal);
-    modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
-  }
-
-  window.showChaseModal = showChaseModal;
-  window.exportChaseActions = showChaseModal;
-  window.showActionNeededModal = showChaseModal;
-  window.showDeptChaseModal = showChaseModal;
-
-  var attempts = 0;
-  var timer = setInterval(function() {
-    attempts++;
-    document.querySelectorAll('button').forEach(function(btn) {
-      if (btn.textContent && btn.textContent.trim().includes('Export & Chase') && !btn._skFixed) {
-        btn._skFixed = true;
-        var fresh = btn.cloneNode(true);
-        fresh._skFixed = true;
-        fresh.addEventListener('click', function(e) {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-          showChaseModal();
-          return false;
-        }, true);
-        if (btn.parentNode) btn.parentNode.replaceChild(fresh, btn);
-      }
-    });
-    if (attempts > 30) clearInterval(timer);
-  }, 400);
-
-})();
-</script>
 <!-- SOUTHKEY TENDERWORKS — COMPLETE DEMO PATCH
      1. Approve all answers button
      2. Delete tender button
@@ -7699,23 +7514,12 @@ if (document.readyState !== 'loading') {
 
     var deleteBtn = document.createElement('button');
     deleteBtn.id = 'sk-delete-btn';
-    deleteBtn.textContent = '🗑 Delete tender';
-    deleteBtn.style.cssText = 'background:none;border:1px solid rgba(239,68,68,0.4);color:rgba(239,68,68,0.8);border-radius:6px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;margin-left:8px;';
+    deleteBtn.textContent = '🗑 Delete this tender';
+    deleteBtn.style.cssText = 'background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.35);color:rgba(239,68,68,0.85);border-radius:6px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;margin-left:8px;';
     deleteBtn.onclick = function() {
-      if (!confirm('Delete this tender? This cannot be undone.')) return;
-      if (window._wsQuestions) window._wsQuestions = [];
-      if (window._activeTenderId) {
-        ['skai-tenders-v1','skai-tenders-v2'].forEach(function(k) {
-          var list = JSON.parse(localStorage.getItem(k)||'[]').filter(function(t){return t.id!==window._activeTenderId;});
-          localStorage.setItem(k, JSON.stringify(list));
-        });
-        window._activeTenderId = null;
+      if (typeof window.skDeleteTender === 'function' && window._activeTenderId) {
+        window.skDeleteTender(window._activeTenderId);
       }
-      var qc = document.getElementById('questions-container');
-      if (qc) qc.innerHTML = '';
-      if (typeof renderTenderSidebar==='function') renderTenderSidebar();
-      if (typeof updateHomeStats==='function') updateHomeStats();
-      if (typeof showVaultToast==='function') showVaultToast('Tender deleted');
     };
     clearBtn.parentNode.appendChild(deleteBtn);
   }
@@ -8597,6 +8401,340 @@ if (document.readyState !== 'loading') {
       setTimeout(tryInject, 400);
     }
   };
+
+})();
+</script>
+</body>
+</html>
+<!-- ============================================================
+     SOUTHKEY PATCH: VIABILITY SCORE + SMART RESET + DELETE
+     ============================================================ -->
+<script>
+(function() {
+
+// ══════════════════════════════════════════════════════════════
+// 1. SMART RESET — keeps vault & company data, clears tenders
+// ══════════════════════════════════════════════════════════════
+window.resetEverything = function() {
+  var choice = confirm(
+    'What do you want to reset?\n\n' +
+    'OK = Clear tenders only (keeps your vault, company facts and past tender library)\n' +
+    'Cancel = Do nothing'
+  );
+  if (!choice) return;
+
+  // Preserve these keys
+  var keep = [
+    'skai-vault-facts',
+    'sk-past-tenders-v1',
+    'sk-answer-library-v1',
+    'sk-supplier-priority-v1',
+    'sk-match-corrections-v1',
+    'sk-question-refs-v1',
+    'skai-company-profile',
+    'skai-branding'
+  ];
+
+  var preserved = {};
+  keep.forEach(function(k) {
+    var v = localStorage.getItem(k);
+    if (v) preserved[k] = v;
+  });
+
+  localStorage.clear();
+
+  // Restore preserved keys
+  Object.keys(preserved).forEach(function(k) {
+    localStorage.setItem(k, preserved[k]);
+  });
+
+  if (typeof showVaultToast === 'function') showVaultToast('Tenders cleared — vault and company data kept');
+  setTimeout(function() { location.reload(); }, 600);
+};
+
+// ══════════════════════════════════════════════════════════════
+// 2. VIABILITY SCORE — shown in each tender workspace
+//    Rates: go for it / borderline / walk away
+// ══════════════════════════════════════════════════════════════
+var VIABILITY_KEY = 'sk-viability-scores-v1';
+
+function loadViabilityScores() {
+  try { return JSON.parse(localStorage.getItem(VIABILITY_KEY) || '{}'); } catch(e) { return {}; }
+}
+function saveViabilityScore(tenderId, data) {
+  var scores = loadViabilityScores();
+  scores[tenderId] = data;
+  localStorage.setItem(VIABILITY_KEY, JSON.stringify(scores));
+}
+
+function getSavedScore(tenderId) {
+  return loadViabilityScores()[tenderId] || null;
+}
+
+// Inject the viability panel into the workspace header
+function injectViabilityPanel() {
+  if (document.getElementById('sk-viability-panel')) return;
+  var workspaceActive = document.getElementById('workspace-active');
+  if (!workspaceActive) return;
+
+  // Find the end of the header div (just before the tabs)
+  var header = workspaceActive.querySelector('[style*="justify-content:space-between"]');
+  if (!header) return;
+
+  var panel = document.createElement('div');
+  panel.id = 'sk-viability-panel';
+  panel.style.cssText = 'margin-bottom:16px;';
+  panel.innerHTML =
+    '<div id="sk-viability-inner" style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">' +
+      '<div style="display:flex;align-items:center;gap:10px;">' +
+        '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;">Viability</div>' +
+        '<div id="sk-viability-badge" style="font-size:12px;color:var(--muted);">Not assessed yet</div>' +
+      '</div>' +
+      '<button id="sk-viability-btn" onclick="runViabilityScore()" style="background:linear-gradient(135deg,rgba(124,58,237,0.25),rgba(79,70,229,0.15));color:#a78bfa;border:1px solid rgba(124,58,237,0.3);border-radius:6px;padding:5px 14px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">✦ Assess this tender</button>' +
+    '</div>' +
+    '<div id="sk-viability-detail" style="display:none;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;padding:14px;margin-top:8px;font-size:12px;color:var(--text);line-height:1.7;"></div>';
+
+  // Insert after header, before tabs
+  header.parentNode.insertBefore(panel, header.nextSibling);
+}
+
+// Check if saved score exists for current tender and show it
+function restoreViabilityForTender(tenderId) {
+  var saved = getSavedScore(tenderId);
+  if (!saved) return;
+  renderViabilityResult(saved);
+}
+
+// Main scoring function
+window.runViabilityScore = async function() {
+  var tenderId = window._activeTenderId;
+  if (!tenderId) return;
+
+  var btn = document.getElementById('sk-viability-btn');
+  var badge = document.getElementById('sk-viability-badge');
+  if (btn) { btn.textContent = '⏳ Assessing...'; btn.disabled = true; }
+
+  // Gather everything we know about this tender
+  var tenderName    = document.getElementById('ws-tender-name')?.value || '';
+  var tenderType    = document.getElementById('ws-tender-type')?.value || 'ITT';
+  var customer      = document.getElementById('ws-tender-customer')?.value || '';
+  var value         = document.getElementById('ws-value')?.value || '';
+  var deadline      = document.getElementById('ws-tender-deadline')?.value || '';
+  var notes         = document.getElementById('ws-notes')?.value || '';
+
+  // Grab first 3 questions for context
+  var questions = [];
+  document.querySelectorAll('#questions-container .q-text').forEach(function(el, i) {
+    if (i < 5) questions.push(el.textContent.trim());
+  });
+
+  // Get vault facts summary
+  var vault = typeof getVault === 'function' ? getVault() : [];
+  var certs = vault.filter(function(v){ return v.category === 'Certifications'; }).map(function(v){ return v.question; }).join(', ');
+  var clients = vault.filter(function(v){ return v.category === 'Clients'; }).map(function(v){ return v.question; }).join(', ');
+
+  // Get past wins from outcome log
+  var outcomes = [];
+  try {
+    var rows = document.querySelectorAll('#outcome-log-body tr, .outcome-row');
+    rows.forEach(function(r) {
+      var txt = r.textContent;
+      if (txt.includes('Won') || txt.includes('Passed')) outcomes.push(txt.substring(0,80));
+    });
+  } catch(e) {}
+
+  var prompt =
+    'You are a bid consultant. Assess whether this company should pursue this tender.\n\n' +
+    'TENDER:\n' +
+    'Name: ' + tenderName + '\n' +
+    'Type: ' + tenderType + '\n' +
+    'Buyer: ' + customer + '\n' +
+    'Value: ' + (value || 'unknown') + '\n' +
+    'Deadline: ' + (deadline || 'unknown') + '\n' +
+    'Notes: ' + (notes || 'none') + '\n' +
+    (questions.length ? 'Questions include: ' + questions.join(' | ') + '\n' : '') +
+    '\nCOMPANY PROFILE:\n' +
+    'Certifications: ' + (certs || 'ISO 9001, ISO 14001, ISO 45001, Cyber Essentials, BSIF, EcoVadis Bronze') + '\n' +
+    'Key clients: ' + (clients || 'NHS, MOJ, Birmingham City Council, Network Rail') + '\n' +
+    'Sector: PPE, workwear and corporate clothing supplier\n' +
+    (outcomes.length ? 'Recent wins: ' + outcomes.join(' | ') + '\n' : '') +
+    '\nReturn ONLY a JSON object with these exact fields:\n' +
+    '{\n' +
+    '  "verdict": "Go for it" or "Borderline" or "Walk away",\n' +
+    '  "score": number 1-10,\n' +
+    '  "headline": "one sentence summary under 12 words",\n' +
+    '  "reasons": ["reason 1", "reason 2", "reason 3"],\n' +
+    '  "risks": ["risk 1", "risk 2"],\n' +
+    '  "tips": ["tip 1", "tip 2"]\n' +
+    '}\n' +
+    'Be direct and honest. Do not sugarcoat. If it looks weak, say so.';
+
+  try {
+    var workerUrl = window.ANTHROPIC_API_URL || 'https://southkey-ai.sarahbarkeris.workers.dev';
+    var res = await fetch(workerUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 600,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    var data = await res.json();
+    var raw = (data.content || []).map(function(c){ return c.text || ''; }).join('').replace(/```json|```/g,'').trim();
+    var result = JSON.parse(raw);
+    result.tenderId = tenderId;
+    result.assessed = new Date().toISOString();
+    saveViabilityScore(tenderId, result);
+    renderViabilityResult(result);
+  } catch(e) {
+    if (badge) badge.textContent = 'Could not assess — check connection';
+    if (btn) { btn.textContent = '✦ Retry assessment'; btn.disabled = false; }
+  }
+};
+
+function renderViabilityResult(result) {
+  var badge = document.getElementById('sk-viability-badge');
+  var detail = document.getElementById('sk-viability-detail');
+  var btn = document.getElementById('sk-viability-btn');
+  if (!badge || !detail) return;
+
+  var colours = {
+    'Go for it':  { bg: 'rgba(16,185,129,0.15)', border: 'rgba(16,185,129,0.4)', text: '#10b981' },
+    'Borderline': { bg: 'rgba(245,158,11,0.15)', border: 'rgba(245,158,11,0.4)', text: '#f59e0b' },
+    'Walk away':  { bg: 'rgba(239,68,68,0.15)',  border: 'rgba(239,68,68,0.4)',  text: '#ef4444' }
+  };
+  var col = colours[result.verdict] || colours['Borderline'];
+  var score = result.score || 5;
+
+  // Score bar
+  var barCol = score >= 7 ? '#10b981' : score >= 5 ? '#f59e0b' : '#ef4444';
+
+  badge.innerHTML =
+    '<span style="background:' + col.bg + ';border:1px solid ' + col.border + ';color:' + col.text + ';border-radius:6px;padding:3px 10px;font-weight:700;font-size:12px;">' + result.verdict + '</span>' +
+    '<span style="margin-left:10px;color:var(--muted);font-size:11px;">' + score + '/10</span>';
+
+  var inner = document.getElementById('sk-viability-inner');
+  if (inner) inner.style.borderColor = col.border;
+
+  detail.style.display = 'block';
+  detail.innerHTML =
+    // Score bar
+    '<div style="margin-bottom:12px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+        '<span style="font-size:11px;font-weight:700;color:var(--muted);">OVERALL FIT</span>' +
+        '<span style="font-size:11px;font-weight:700;color:' + barCol + ';">' + score + ' / 10</span>' +
+      '</div>' +
+      '<div style="background:rgba(255,255,255,0.06);border-radius:4px;height:6px;overflow:hidden;">' +
+        '<div style="width:' + (score*10) + '%;height:100%;border-radius:4px;background:' + barCol + ';transition:width 0.6s;"></div>' +
+      '</div>' +
+    '</div>' +
+
+    // Headline
+    '<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border);">' + (result.headline || '') + '</div>' +
+
+    // Three columns
+    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">' +
+
+      '<div>' +
+        '<div style="font-size:10px;font-weight:700;color:#10b981;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Why it works</div>' +
+        (result.reasons || []).map(function(r) {
+          return '<div style="font-size:11px;color:var(--text);margin-bottom:5px;padding-left:10px;border-left:2px solid rgba(16,185,129,0.4);">' + r + '</div>';
+        }).join('') +
+      '</div>' +
+
+      '<div>' +
+        '<div style="font-size:10px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Watch out for</div>' +
+        (result.risks || []).map(function(r) {
+          return '<div style="font-size:11px;color:var(--text);margin-bottom:5px;padding-left:10px;border-left:2px solid rgba(245,158,11,0.4);">' + r + '</div>';
+        }).join('') +
+      '</div>' +
+
+      '<div>' +
+        '<div style="font-size:10px;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">If you go for it</div>' +
+        (result.tips || []).map(function(t) {
+          return '<div style="font-size:11px;color:var(--text);margin-bottom:5px;padding-left:10px;border-left:2px solid rgba(124,58,237,0.4);">' + t + '</div>';
+        }).join('') +
+      '</div>' +
+
+    '</div>' +
+
+    '<div style="margin-top:10px;text-align:right;">' +
+      '<button onclick="runViabilityScore()" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;text-decoration:underline;">Re-assess</button>' +
+    '</div>';
+
+  if (btn) { btn.textContent = '✦ Re-assess'; btn.disabled = false; }
+}
+
+// ── HOOK INTO openTenderWorkspace ────────────────────────────────────────
+var _origOpen = window.openTenderWorkspace;
+window.openTenderWorkspace = function(id) {
+  if (typeof _origOpen === 'function') _origOpen(id);
+  setTimeout(function() {
+    injectViabilityPanel();
+    restoreViabilityForTender(id);
+  }, 400);
+};
+
+// ── INIT on page load if a tender is already open ────────────────────────
+setTimeout(function() {
+  if (window._activeTenderId) {
+    injectViabilityPanel();
+    restoreViabilityForTender(window._activeTenderId);
+  }
+}, 1500);
+
+// ══════════════════════════════════════════════════════════════
+// 3. DELETE INDIVIDUAL TENDER — clean, reliable, works always
+// ══════════════════════════════════════════════════════════════
+window.skDeleteTender = function(id) {
+  var tenders = typeof getTenders === 'function' ? getTenders() : [];
+  var tender = tenders.find(function(t){ return t.id == id; });
+  var name = tender ? (tender.name || 'Untitled tender') : 'this tender';
+  if (!confirm('Remove "' + name + '"?\n\nYour vault, company facts and other tenders are not affected.')) return;
+
+  // Remove from storage
+  var updated = tenders.filter(function(t){ return t.id != id; });
+  if (typeof saveTenders === 'function') saveTenders(updated);
+
+  // Also clean up linked data
+  try {
+    // viability scores
+    var vk = 'sk-viability-scores-v1';
+    var vs = JSON.parse(localStorage.getItem(vk) || '{}');
+    delete vs[id];
+    localStorage.setItem(vk, JSON.stringify(vs));
+    // question refs
+    var rk = 'sk-question-refs-v1';
+    var refs = JSON.parse(localStorage.getItem(rk) || '{}');
+    Object.keys(refs).forEach(function(k){ if (k.startsWith(id + '_')) delete refs[k]; });
+    localStorage.setItem(rk, JSON.stringify(refs));
+  } catch(e2) {}
+
+  // If this was the active tender, go back to empty state
+  if (window._activeTenderId == id) {
+    window._activeTenderId = null;
+    var qc = document.getElementById('questions-container');
+    if (qc) qc.innerHTML = '';
+    var empty = document.getElementById('workspace-empty');
+    var active = document.getElementById('workspace-active');
+    if (empty) empty.style.display = 'flex';
+    if (active) active.style.display = 'none';
+    // Remove viability panel
+    var vp = document.getElementById('sk-viability-panel');
+    if (vp) vp.remove();
+  }
+
+  if (typeof renderTenderSidebar === 'function') renderTenderSidebar();
+  if (typeof updateHomeStats === 'function') updateHomeStats();
+  if (typeof showVaultToast === 'function') showVaultToast('\u2713 "' + name + '" removed');
+};
+
+// Override the sidebar X button to use the clean version
+window.deleteTenderWorkspace = function(id, e) {
+  if (e) { e.stopPropagation(); e.preventDefault(); }
+  window.skDeleteTender(id);
+};
 
 })();
 </script>
