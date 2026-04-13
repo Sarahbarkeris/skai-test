@@ -943,6 +943,7 @@
             <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
               <button onclick="addManualQuestion()" style="background:none;border:1px solid var(--border);border-radius:6px;padding:5px 12px;font-size:11px;color:var(--muted);cursor:pointer;">+ Add question</button>
               <button onclick="showActionNeededDigest()" id="export-answers-btn" style="display:none;background:linear-gradient(135deg,#10b981,#059669);color:white;border:none;border-radius:6px;padding:5px 14px;font-size:11px;font-weight:700;cursor:pointer;">📋 Export & Chase Actions</button>
+              <button onclick="showDownloadModal()" id="sk-download-btn" style="display:none;background:linear-gradient(135deg,rgba(59,130,246,0.3),rgba(37,99,235,0.2));color:#93c5fd;border:1px solid rgba(59,130,246,0.4);border-radius:6px;padding:5px 14px;font-size:11px;font-weight:700;cursor:pointer;">⬇ Download</button>
               <button onclick="signOffAllAnswers()" id="sk-signoff-all-btn" style="display:none;background:linear-gradient(135deg,rgba(16,185,129,0.25),rgba(5,150,105,0.15));color:#10b981;border:1px solid rgba(16,185,129,0.4);border-radius:6px;padding:5px 14px;font-size:11px;font-weight:700;cursor:pointer;">✓ Sign off all</button>
               <div id="sk-signoff-progress" style="display:none;font-size:11px;color:var(--muted);padding:0 4px;"></div>
               <button onclick="clearAllQuestions()" style="margin-left:auto;background:none;border:none;color:rgba(239,68,68,0.5);font-size:11px;cursor:pointer;">Clear all</button>
@@ -3990,6 +3991,11 @@ async function wizardRunSKAI() {
     return;
   }
 
+  // Save raw content and filename immediately for format-matched export later
+  window._wizRawText = content;
+  window._wizOriginalFileName = _wizFileName || '';
+  window._wizOriginalFormat = /\.(doc|docx)$/i.test(_wizFileName) ? 'docx' : /\.pdf$/i.test(_wizFileName) ? 'pdf' : 'text';
+
   // Move to processing step
   wizardNext(3);
   const progressText = document.getElementById('wiz-progress-text');
@@ -4057,11 +4063,21 @@ ${content.substring(0, 8000)}`;
     const answers = {};
     const BATCH = 5;
 
+    const PARALLEL = 3; // run 3 batches at once
+    const allBatches = [];
     for (let i = 0; i < questions.length; i += BATCH) {
-      const batch = questions.slice(i, i + BATCH);
-      const pct = 40 + Math.round((i / questions.length) * 45);
-      updateProgress(pct, `Answering questions ${i+1}–${Math.min(i+BATCH, questions.length)} of ${questions.length}...`, '');
+      allBatches.push({ start: i, batch: questions.slice(i, i + BATCH) });
+    }
 
+    let completedBatches = 0;
+    for (let g = 0; g < allBatches.length; g += PARALLEL) {
+      const group = allBatches.slice(g, g + PARALLEL);
+      const firstQ = group[0].start + 1;
+      const lastQ = Math.min(group[group.length-1].start + BATCH, questions.length);
+      const pct = 40 + Math.round((g / allBatches.length) * 45);
+      updateProgress(pct, `Answering questions ${firstQ}–${lastQ} of ${questions.length}...`, '');
+
+      await Promise.all(group.map(async ({ start, batch }) => {
       try {
         const batchUserPrompt = `Answer each of these tender questions. Return ONLY valid JSON array:\n[{"q": "question", "a": "answer"}]\n\nQuestions:\n${batch.map((q,n) => `${n+1}. ${q}`).join('\n')}`;
 
@@ -4274,51 +4290,96 @@ function loadTenderFromList(id) {
 }
 
 function loadTenderIntoBuilder(tender) {
-  showSection('builder');
-
-  // Set tender name in header
-  const sub = document.querySelector('#section-builder .section-sub, .builder-subtitle');
-  if (sub) sub.textContent = (tender.name || '') + ' · ' + (tender.type || 'PQQ');
-
-  // Clear existing questions
-  const container = document.getElementById('questions-container');
-  if (!container) {
-    // Fall back to bulk paste method
-    const pasteEl = document.getElementById('paste-questions');
-    if (pasteEl && tender.questions.length) {
-      pasteEl.value = tender.questions.join('\n\n');
-      if (typeof parseAndRenderQuestions === 'function') parseAndRenderQuestions();
-      // Fill answers
-      setTimeout(() => {
-        tender.questions.forEach((q, i) => {
-          const ta = document.getElementById('answer-' + (i+1));
-          if (ta && tender.answers[q]) {
-            ta.value = tender.answers[q];
-            const badge = ta.closest('.question-block')?.querySelector('.q-status');
-            if (badge && !tender.answers[q].includes('Could not')) {
-              badge.textContent = '✓ Done';
-              badge.className = 'badge badge-active q-status';
-            }
-          }
-        });
-        // Show export buttons
-        const exportTxt = document.getElementById('export-answers-btn');
-        const exportWord = document.getElementById('export-word-btn');
-        if (exportTxt) exportTxt.style.display = 'inline-flex';
-        if (exportWord) exportWord.style.display = 'inline-flex';
-        buildCompletionChecklist();
-      }, 300);
-    }
-  }
-
-  // Reset wizard state vars for next use (don't navigate away)
+  // Reset wizard state before navigating away
   _wizFileContent = null;
   _wizFileName = '';
-  const badge = document.getElementById('wiz-file-badge');
-  if (badge) badge.style.display = 'none';
-  const area = document.getElementById('wiz-paste-area');
-  if (area) area.value = '';
-  // DO NOT call wizardNext(1) here — it resets the workspace view
+  const wizBadge = document.getElementById('wiz-file-badge');
+  if (wizBadge) wizBadge.style.display = 'none';
+  const wizArea = document.getElementById('wiz-paste-area');
+  if (wizArea) wizArea.value = '';
+
+  // Store raw text and file info for format-matched export
+  if (window._wizRawText) {
+    window._tenderRawText = window._wizRawText;
+    window._uploadedFileName = window._wizOriginalFileName || _wizFileName || '';
+    window._uploadedFormat = window._wizOriginalFormat || 'text';
+    window._wizRawText = null;
+  }
+
+  // ── USE THE WORKSPACE SYSTEM ────────────────────────────────────────────
+  // The proper way: save to workspace storage, then open it
+  if (typeof getTenders === 'function' && typeof saveTenders === 'function') {
+    // Ensure the tender has the right shape for the workspace
+    const wsData = {
+      id: tender.id || Date.now(),
+      parentId: null,
+      name: tender.name || '',
+      type: tender.type || 'PQQ',
+      customer: tender.customer || '',
+      deadline: tender.deadline || '',
+      status: 'In Progress',
+      value: '',
+      notes: '',
+      questions: tender.questions || [],
+      answers: (tender.questions || []).map(q => tender.answers?.[q] || ''),
+      statuses: (tender.questions || []).map(q => 
+        (tender.answers?.[q] && !tender.answers[q].includes('Could not')) ? '✓ Done' : 'Draft'
+      ),
+      quoteLines: [],
+      created: tender.created || new Date().toISOString(),
+      updated: new Date().toISOString()
+    };
+
+    // Add or update in workspace tender list
+    const tenders = getTenders();
+    const existingIdx = tenders.findIndex(t => t.id === wsData.id);
+    if (existingIdx > -1) {
+      tenders[existingIdx] = wsData;
+    } else {
+      tenders.unshift(wsData);
+    }
+    saveTenders(tenders);
+
+    // Navigate to builder and open it
+    showSection('builder');
+    setTimeout(() => {
+      if (typeof openTenderWorkspace === 'function') {
+        openTenderWorkspace(wsData.id);
+        // Show sign-off and export buttons
+        setTimeout(() => {
+          const sob = document.getElementById('sk-signoff-all-btn');
+          if (sob) sob.style.display = 'inline-flex';
+          const exp = document.getElementById('export-answers-btn');
+          if (exp) exp.style.display = 'inline-flex';
+          if (typeof updateReviewSummary === 'function') updateReviewSummary();
+          if (typeof updateHomeStats === 'function') updateHomeStats();
+        }, 600);
+      }
+    }, 300);
+    return;
+  }
+
+  // ── FALLBACK: old paste method if workspace system not available ─────────
+  showSection('builder');
+  const container = document.getElementById('questions-container');
+  const pasteEl = document.getElementById('paste-questions');
+  if (pasteEl && tender.questions && tender.questions.length) {
+    pasteEl.value = tender.questions.join('\n\n');
+    if (typeof parseAndRenderQuestions === 'function') parseAndRenderQuestions();
+    setTimeout(() => {
+      tender.questions.forEach((q, i) => {
+        const ta = document.getElementById('answer-' + (i+1));
+        if (ta && tender.answers?.[q]) {
+          ta.value = tender.answers[q];
+          const badge = ta.closest('.question-block')?.querySelector('.q-status');
+          if (badge && !tender.answers[q].includes('Could not')) {
+            badge.textContent = '✓ Done';
+            badge.className = 'badge badge-active q-status';
+          }
+        }
+      });
+    }, 400);
+  }
 }
 
 
@@ -5933,6 +5994,7 @@ function openTenderWorkspace(id) {
     document.getElementById('generate-all-btn').style.display = 'inline-flex';
     document.getElementById('export-answers-btn').style.display = 'inline-flex';
     var sob = document.getElementById('sk-signoff-all-btn'); if (sob) sob.style.display = 'inline-flex';
+    var dlb = document.getElementById('sk-download-btn'); if (dlb) dlb.style.display = 'inline-flex';
     updateReviewSummary();
   }
   switchWsTab('questions');
@@ -7156,21 +7218,203 @@ function openEmailDraft(recipientEncoded, subjectEncoded, bodyEncoded) {
 }
 
 function exportFullTender() {
-  const name = document.getElementById('ws-tender-name')?.value||'Tender';
+  const name = document.getElementById('ws-tender-name')?.value || 'Tender';
+  const tenderType = document.getElementById('ws-tender-type')?.value || 'Tender';
   const blocks = document.querySelectorAll('#questions-container .question-block');
-  let txt = `${name.toUpperCase()}\n${'='.repeat(60)}\nEurox / Future Garments Ltd\nExported: ${new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'})}\n\n`;
-  blocks.forEach((block,i) => {
-    const q = block.querySelector('.q-text')?.textContent?.trim()||'';
-    const a = document.getElementById('answer-'+(i+1))?.value||'[Not answered]';
-    txt += `QUESTION ${i+1}\n${q}\n\nANSWER\n${a}\n\n${'─'.repeat(60)}\n\n`;
+  if (!blocks.length) { if (typeof showVaultToast==='function') showVaultToast('No answers to export yet'); return; }
+
+  // Collect all Q&A
+  const qa = [];
+  blocks.forEach((block, i) => {
+    const q = block.querySelector('.q-text')?.textContent?.trim() || '';
+    const a = document.getElementById('answer-' + (i+1))?.value || '';
+    qa.push({ q, a, num: i+1 });
   });
-  const blob = new Blob([txt],{type:'text/plain'});
+
+  // Clean answers - remove internal markers
+  const cleanAnswer = (txt) => txt
+    .replace(/⚠️ NEEDS CHECKING[^
+]*/g, '')
+    .replace(/\[check.*?submitting\]/gi, '')
+    .replace(/ACTION NEEDED[^
+]*/g, '')
+    .replace(/- /g, '')  // remove dash bullets
+    .replace(/
+{3,}/g, '
+
+')
+    .trim();
+
+  // Try to reconstruct original format if raw text available
+  const rawText = window._tenderRawText || '';
+  const fmt = window._tenderFormat || 'numbered';
+  let txt = '';
+  let fileName = '';
+
+  if (rawText && rawText.length > 200) {
+    // BEST CASE: slot answers back into original document structure
+    txt = reconstructInOriginalFormat(rawText, qa, fmt, name);
+    fileName = name.replace(/[^a-z0-9]/gi,'_') + '_COMPLETED.' + (fmt === 'table' ? 'txt' : 'txt');
+  } else {
+    // FALLBACK: clean formatted export
+    txt = buildCleanExport(qa, name, tenderType, fmt);
+    fileName = name.replace(/[^a-z0-9]/gi,'_') + '_Answers.txt';
+  }
+
+  // Strip any remaining AI indicators
+  txt = txt
+    .replace(/SKAI Intelligence/g, '')
+    .replace(/Generated by SKAI/g, '')
+    .replace(/TenderWorks/g, '')
+    .replace(/Southkey\.io/g, '')
+    .replace(/Furthermore,?/g, 'Also,')
+    .replace(/Moreover,?/g, '')
+    .replace(/In conclusion,?/g, '')
+    .replace(/It is worth noting that/g, '')
+    .replace(/It should be noted that/g, '')
+    .replace(/In order to/g, 'To')
+    .replace(/Utilise/g, 'Use')
+    .replace(/Robust/g, 'Strong')
+    .replace(/Seamless/g, 'smooth')
+    .replace(/Leverage/g, 'Use')
+    .replace(/Streamline/g, 'simplify')
+    .replace(/Comprehensive/g, 'Full');
+
+  const blob = new Blob([txt], {type:'text/plain;charset=utf-8'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = name.replace(/[^a-z0-9]/gi,'_')+'_answers.txt';
+  a.download = fileName;
+  document.body.appendChild(a);
   a.click();
-  closeModal('modal-action-digest');
-  showVaultToast('Exported ✓');
+  document.body.removeChild(a);
+  if (typeof closeModal==='function') closeModal('modal-action-digest');
+  if (typeof showVaultToast==='function') showVaultToast('Downloaded — ' + fmt + ' format');
+}
+
+// ── SLOT ANSWERS BACK INTO ORIGINAL DOCUMENT STRUCTURE ───────────────────
+function reconstructInOriginalFormat(rawText, qa, fmt, tenderName) {
+  let out = rawText;
+
+  // For each question, find where it appears in the raw text
+  // and insert the answer after it, before the next question or section break
+  qa.forEach(function(item) {
+    if (!item.q || !item.a) return;
+    const clean = item.a
+      .replace(/⚠️ NEEDS CHECKING[^
+]*/g, '')
+      .replace(/ACTION NEEDED[^
+]*/g, '')
+      .replace(/
+{3,}/g, '
+
+')
+      .trim();
+
+    if (!clean) return;
+
+    // Try to find the question in the raw text (first 60 chars match)
+    const qSnippet = item.q.substring(0, 50).replace(/[.*+?^${}()|[\]\]/g, '\\$&');
+    const qRegex = new RegExp('(' + qSnippet + '[^\n]*)', 'i');
+    const match = out.match(qRegex);
+
+    if (match) {
+      // Find position after the question line
+      const qPos = out.indexOf(match[0]);
+      const afterQ = qPos + match[0].length;
+      // Find next blank line or next question marker
+      const nextBreak = out.indexOf('
+
+', afterQ);
+      const insertAt = nextBreak > -1 && nextBreak < afterQ + 500 ? nextBreak : afterQ;
+      // Check if there's already a response placeholder
+      const snippet = out.substring(afterQ, afterQ + 200).toLowerCase();
+      if (snippet.includes('response') || snippet.includes('please provide') || snippet.includes('[insert') || snippet.trim().length < 5) {
+        // Replace the placeholder with the answer
+        out = out.substring(0, insertAt) + '
+
+' + clean + '
+' + out.substring(insertAt);
+      } else if (!snippet.trim() || snippet.trim().length < 10) {
+        out = out.substring(0, insertAt) + '
+
+' + clean + '
+' + out.substring(insertAt);
+      }
+    }
+  });
+
+  return out;
+}
+
+// ── CLEAN FORMATTED EXPORT (fallback when no raw text) ───────────────────
+function buildCleanExport(qa, tenderName, tenderType, fmt) {
+  const date = new Date().toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric'});
+  const company = localStorage.getItem('skai-company-name') || 'Eurox / Future Garments Ltd';
+  let out = tenderName.toUpperCase() + '
+' + '='.repeat(60) + '
+';
+  out += company + '
+';
+  out += tenderType + ' Response
+';
+  out += date + '
+
+';
+
+  qa.forEach(function(item) {
+    const answer = (item.a || '[Not answered]')
+      .replace(/⚠️ NEEDS CHECKING[^
+]*/g, '')
+      .replace(/ACTION NEEDED[^
+]*/g, '')
+      .trim();
+
+    if (fmt === 'numbered') {
+      out += item.num + '. ' + item.q + '
+
+';
+      out += answer + '
+
+';
+      out += '─'.repeat(60) + '
+
+';
+    } else if (fmt === 'lettered' || fmt === 'sectioned') {
+      out += 'Q' + item.num + ': ' + item.q + '
+
+';
+      out += 'Response:
+' + answer + '
+
+';
+      out += '─'.repeat(60) + '
+
+';
+    } else if (fmt === 'word-limited') {
+      const wordCount = answer.split(/\s+/).filter(Boolean).length;
+      out += item.num + '. ' + item.q + '
+
+';
+      out += answer + '
+';
+      out += '[Word count: ' + wordCount + ']
+
+';
+      out += '─'.repeat(60) + '
+
+';
+    } else {
+      out += item.q + '
+
+' + answer + '
+
+─'.repeat(60) + '
+
+';
+    }
+  });
+
+  return out;
 }
 
 function resetEverything() {
@@ -8552,6 +8796,167 @@ if (document.readyState !== 'loading') {
 
 })();
 </script>
+
+<!-- ============================================================
+     SOUTHKEY: PROPER DOCX EXPORT
+     Builds a real Word document with answers in original format
+     Uses docx.js from CDN — no server needed
+     ============================================================ -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/docx/8.5.0/docx.umd.min.js"></script>
+<script>
+(function() {
+
+window.doDownloadDocx = async function() {
+  var blocks = document.querySelectorAll('#questions-container .question-block');
+  if (!blocks.length) {
+    if (typeof showVaultToast === 'function') showVaultToast('No answers to export yet');
+    return;
+  }
+
+  var tenderName  = document.getElementById('ws-tender-name')?.value || 'Tender';
+  var customer    = document.getElementById('ws-tender-customer')?.value || '';
+  var tenderType  = document.getElementById('ws-tender-type')?.value || '';
+  var deadline    = document.getElementById('ws-tender-deadline')?.value || '';
+  var company     = localStorage.getItem('skai-company-name') || 'Eurox / Future Garments Ltd';
+  var fmt         = window._tenderFormat || 'numbered';
+
+  if (typeof showVaultToast === 'function') showVaultToast('Building Word document...');
+
+  // Collect Q&A
+  var qa = [];
+  blocks.forEach(function(block, i) {
+    var q = block.querySelector('.q-text')?.textContent?.trim() || '';
+    var a = document.getElementById('answer-' + (i+1))?.value || '';
+    // Clean answer
+    a = a
+      .replace(/⚠️ NEEDS CHECKING[^
+]*/g, '')
+      .replace(/\[check.*?submitting\]/gi, '')
+      .replace(/⚠️ ACTION NEEDED[^
+]*/g, '')
+      .replace(/
+{3,}/g, '
+
+')
+      .replace(/Furthermore,?/g, 'Also,')
+      .replace(/Moreover,?/g, '')
+      .replace(/In conclusion,?/g, '')
+      .replace(/In order to/g, 'To')
+      .replace(/Utilise/g, 'Use')
+      .replace(/Leverage/g, 'Use')
+      .replace(/Robust/g, 'Strong')
+      .replace(/Seamless/g, 'smooth')
+      .trim();
+    qa.push({ num: i+1, q: q, a: a || '[Not yet answered]' });
+  });
+
+  try {
+    var docx = window.docx;
+    if (!docx) throw new Error('docx library not loaded');
+
+    var { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType,
+          BorderStyle, ShadingType } = docx;
+
+    // Helper — split text into paragraphs
+    function textParas(text, opts) {
+      return (text || '').split('
+').filter(function(l){ return l.trim().length > 0; }).map(function(line) {
+        return new Paragraph(Object.assign({ children: [new TextRun({ text: line.trim(), ...(opts||{}) })] }, opts && opts._para ? opts._para : {}));
+      });
+    }
+
+    var children = [];
+
+    // Cover section
+    children.push(new Paragraph({
+      children: [new TextRun({ text: tenderName, bold: true, size: 36, color: '1a3a6b' })],
+      spacing: { after: 120 }
+    }));
+    children.push(new Paragraph({
+      children: [new TextRun({ text: company, size: 24, color: '444444' })],
+      spacing: { after: 60 }
+    }));
+    if (customer) children.push(new Paragraph({
+      children: [new TextRun({ text: 'Prepared for: ' + customer, size: 22, color: '666666' })]
+    }));
+    if (tenderType) children.push(new Paragraph({
+      children: [new TextRun({ text: 'Submission type: ' + tenderType, size: 22, color: '666666' })]
+    }));
+    if (deadline) children.push(new Paragraph({
+      children: [new TextRun({ text: 'Deadline: ' + new Date(deadline).toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric'}), size: 22, color: '666666' })]
+    }));
+    children.push(new Paragraph({
+      children: [new TextRun({ text: 'Prepared: ' + new Date().toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric'}), size: 22, color: '666666' })],
+      spacing: { after: 480 }
+    }));
+
+    // Q&A sections
+    qa.forEach(function(item) {
+      // Question heading
+      var qPrefix = fmt === 'numbered' ? item.num + '. ' : '';
+      children.push(new Paragraph({
+        children: [
+          new TextRun({ text: qPrefix + item.q, bold: true, size: 24, color: '1a3a6b' })
+        ],
+        spacing: { before: 360, after: 120 },
+        border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: 'e0e8f0', space: 4 } }
+      }));
+
+      // Answer paragraphs
+      var answerLines = item.a.split('
+').filter(function(l){ return l.trim().length > 0; });
+      answerLines.forEach(function(line, li) {
+        children.push(new Paragraph({
+          children: [new TextRun({ text: line.trim(), size: 22 })],
+          spacing: { after: li === answerLines.length - 1 ? 240 : 60 }
+        }));
+      });
+
+      // Separator
+      children.push(new Paragraph({
+        children: [new TextRun({ text: '' })],
+        spacing: { after: 120 },
+        border: { bottom: { style: BorderStyle.SINGLE, size: 2, color: 'e8f0e8', space: 2 } }
+      }));
+    });
+
+    var doc = new Document({
+      styles: {
+        default: {
+          document: { run: { font: 'Arial', size: 22 } }
+        }
+      },
+      sections: [{
+        properties: {
+          page: {
+            size: { width: 11906, height: 16838 }, // A4
+            margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 }
+          }
+        },
+        children: children
+      }]
+    });
+
+    var buffer = await Packer.toBlob(doc);
+    var fileName = tenderName.replace(/[^a-z0-9\s]/gi,'').replace(/\s+/g,'_') + '_Completed.docx';
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(buffer);
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    if (typeof showVaultToast === 'function') showVaultToast('✓ Word document downloaded — ' + fileName);
+
+  } catch(err) {
+    console.error('docx export error:', err);
+    // Fallback to text if docx library fails
+    if (typeof showVaultToast === 'function') showVaultToast('Word export failed — downloading as text instead');
+    if (typeof doDownload === 'function') doDownload('matched');
+  }
+};
+
+})();
+</script>
 </body>
 </html>
 <!-- ============================================================
@@ -9165,6 +9570,321 @@ setTimeout(function() {
   buildPerformancePanel();
   renderPerformance('all');
 }, 800);
+
+})();
+</script>
+</body>
+</html>
+
+<!-- ============================================================
+     SOUTHKEY: SMART FORMAT-MATCHED DOWNLOAD
+     Exports in the same structure the tender arrived in.
+     If it came in numbered — exports numbered.
+     If sectioned — sectioned. Tables — tables.
+     Word doc upload — reconstructs with answers slotted in.
+     ============================================================ -->
+<script>
+(function() {
+
+// ── SHOW DOWNLOAD MODAL ───────────────────────────────────────────────────
+window.showDownloadModal = function() {
+  var blocks = document.querySelectorAll('#questions-container .question-block');
+  if (!blocks.length) {
+    if (typeof showVaultToast === 'function') showVaultToast('No answers to download yet');
+    return;
+  }
+
+  var old = document.getElementById('sk-download-modal');
+  if (old) old.remove();
+
+  var fmt = window._tenderFormat || 'numbered';
+  var hasRaw = !!(window._tenderRawText && window._tenderRawText.length > 100);
+  var origFile = window._wizFileName || window._uploadedFileName || '';
+  var isWord = /\.(doc|docx)$/i.test(origFile);
+  var isPDF  = /\.pdf$/i.test(origFile);
+
+  var tenderName = document.getElementById('ws-tender-name')?.value || 'Tender';
+  var answered = 0;
+  blocks.forEach(function(b, i) {
+    var a = document.getElementById('answer-' + (i+1))?.value || '';
+    if (a.trim().length > 10) answered++;
+  });
+  var notSigned = Array.from(blocks).filter(function(b, i) {
+    return !document.getElementById('reviewed-' + (i+1))?.checked;
+  }).length;
+
+  var modal = document.createElement('div');
+  modal.id = 'sk-download-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+
+  modal.innerHTML =
+    '<div style="background:var(--navy,#0d1f17);border:1px solid rgba(45,212,160,0.3);border-radius:14px;padding:24px;max-width:560px;width:100%;font-family:Arial,sans-serif;">' +
+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;">' +
+        '<div>' +
+          '<div style="font-size:17px;font-weight:800;color:#e8f5f0;">⬇ Download Completed Tender</div>' +
+          '<div style="font-size:12px;color:#8bbfaa;margin-top:3px;">' + answered + ' of ' + blocks.length + ' questions answered</div>' +
+        '</div>' +
+        '<button onclick="document.getElementById(\'sk-download-modal\').remove()" style="background:none;border:none;color:#8bbfaa;font-size:24px;cursor:pointer;line-height:1;">✕</button>' +
+      '</div>' +
+
+      // Warning if unsigned
+      (notSigned > 0 ?
+        '<div style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#f59e0b;">' +
+          '⚠ ' + notSigned + ' answer' + (notSigned!==1?'s':'') + ' not yet signed off — consider reviewing before downloading.' +
+        '</div>' : '') +
+
+      // Format info
+      '<div style="background:rgba(255,255,255,0.04);border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:12px;color:#8bbfaa;">' +
+        '<strong style="color:#e8f5f0;">Format detected:</strong> ' + formatLabel(fmt) +
+        (origFile ? ' · <span style="color:#8bbfaa;">Original: ' + origFile + '</span>' : '') +
+        (hasRaw ? '<br><span style="color:#2dd4a0;">✓ Original structure preserved — answers will slot back into the same document layout</span>' : '<br><span style="color:#f59e0b;">No original file detected — clean format export</span>') +
+      '</div>' +
+
+      // Download options
+      '<div style="display:flex;flex-direction:column;gap:10px;">' +
+
+        // Option 0: Word docx (best — always first)
+        '<button onclick="doDownloadDocx()" style="background:linear-gradient(135deg,rgba(59,130,246,0.25),rgba(37,99,235,0.12));border:1px solid rgba(59,130,246,0.5);border-radius:10px;padding:14px 18px;text-align:left;cursor:pointer;width:100%;margin-bottom:2px;">' +
+          '<div style="font-size:13px;font-weight:700;color:#93c5fd;margin-bottom:3px;">📝 Download as Word document (.docx)</div>' +
+          '<div style="font-size:11px;color:#8bbfaa;">Properly formatted Word document with your answers in the same structure as the original. Open, check and submit directly.</div>' +
+        '</button>' +
+
+        // Option 1: Matched format text
+        '<button onclick="doDownload(\'matched\')" style="background:linear-gradient(135deg,rgba(45,212,160,0.2),rgba(16,185,129,0.1));border:1px solid rgba(45,212,160,0.4);border-radius:10px;padding:14px 18px;text-align:left;cursor:pointer;width:100%;">' +
+          '<div style="font-size:13px;font-weight:700;color:#2dd4a0;margin-bottom:3px;">📄 Download as text — same format as original</div>' +
+          '<div style="font-size:11px;color:#8bbfaa;">' +
+            (hasRaw ? 'Answers slotted directly into the original document structure. Ready to copy back into the portal.' :
+                      'Clean numbered format matching your tender type.') +
+          '</div>' +
+        '</button>' +
+
+        // Option 2: Plain Q&A
+        '<button onclick="doDownload(\'plain\')" style="background:rgba(255,255,255,0.04);border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:10px;padding:14px 18px;text-align:left;cursor:pointer;width:100%;">' +
+          '<div style="font-size:13px;font-weight:700;color:#e8f5f0;margin-bottom:3px;">📄 Download — clean Q&A document</div>' +
+          '<div style="font-size:11px;color:#8bbfaa;">Each question followed by its answer. Good for internal review or filing.</div>' +
+        '</button>' +
+
+        // Option 3: Answers only
+        '<button onclick="doDownload(\'answers-only\')" style="background:rgba(255,255,255,0.04);border:1px solid var(--border,rgba(255,255,255,0.1));border-radius:10px;padding:14px 18px;text-align:left;cursor:pointer;width:100%;">' +
+          '<div style="font-size:13px;font-weight:700;color:#e8f5f0;margin-bottom:3px;">📋 Download — answers only</div>' +
+          '<div style="font-size:11px;color:#8bbfaa;">Just the answers, numbered. For pasting directly into an online portal.</div>' +
+        '</button>' +
+
+      '</div>' +
+
+      '<div style="margin-top:14px;padding:10px 14px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.15);border-radius:8px;font-size:11px;color:#8bbfaa;line-height:1.6;">' +
+        '💡 <strong style="color:#93c5fd;">Tip:</strong> All downloads are plain text so they open in any program. ' +
+        'If the buyer\'s portal has a text box for each answer, use <em>Answers only</em> and paste question by question.' +
+      '</div>' +
+
+    '</div>';
+
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+};
+
+function formatLabel(fmt) {
+  var labels = {
+    'numbered': 'Numbered questions',
+    'lettered': 'Lettered sections',
+    'sectioned': 'Section-based document',
+    'table': 'Table / schedule format',
+    'word-limited': 'Word-limited responses',
+    'freeform': 'Free-form document',
+    'unknown': 'Standard format'
+  };
+  return labels[fmt] || fmt;
+}
+
+// ── DO THE DOWNLOAD ───────────────────────────────────────────────────────
+window.doDownload = function(mode) {
+  document.getElementById('sk-download-modal')?.remove();
+
+  var blocks = document.querySelectorAll('#questions-container .question-block');
+  var tenderName = document.getElementById('ws-tender-name')?.value || 'Tender';
+  var customer = document.getElementById('ws-tender-customer')?.value || '';
+  var tenderType = document.getElementById('ws-tender-type')?.value || '';
+  var deadline = document.getElementById('ws-tender-deadline')?.value || '';
+  var fmt = window._tenderFormat || 'numbered';
+  var rawText = window._tenderRawText || '';
+
+  // Collect Q&A, clean answers
+  var qa = [];
+  blocks.forEach(function(block, i) {
+    var q = block.querySelector('.q-text')?.textContent?.trim() || '';
+    var a = document.getElementById('answer-' + (i+1))?.value || '';
+    var signed = document.getElementById('reviewed-' + (i+1))?.checked;
+    // Clean answer of internal markers
+    a = a
+      .replace(/⚠️ NEEDS CHECKING[^\n]*/g, '')
+      .replace(/\[check.*?submitting\]/gi, '')
+      .replace(/⚠️ ACTION NEEDED[^\n]*/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      // Remove AI phrases
+      .replace(/\bFurthermore,?\b/g, 'Also,')
+      .replace(/\bMoreover,?\b/g, '')
+      .replace(/\bIn conclusion,?\b/g, '')
+      .replace(/\bIt is worth noting that\b/g, '')
+      .replace(/\bIn order to\b/g, 'To')
+      .replace(/\bUtilise\b/g, 'Use')
+      .replace(/\bLeverage\b/g, 'Use')
+      .replace(/\bRobust\b/g, 'Strong')
+      .replace(/\bSeamless\b/g, 'smooth')
+      .replace(/\bStreamline\b/g, 'simplify')
+      .replace(/\bComprehensive\b/g, 'Full')
+      .trim();
+    qa.push({ num: i+1, q: q, a: a || '[Not yet answered]', signed: signed });
+  });
+
+  var header = tenderName.toUpperCase() + '\n' +
+    (customer ? customer + '\n' : '') +
+    (tenderType ? tenderType + '\n' : '') +
+    (deadline ? 'Deadline: ' + new Date(deadline).toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric'}) + '\n' : '') +
+    'Prepared: ' + new Date().toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric'}) + '\n' +
+    '='.repeat(60) + '\n\n';
+
+  var txt = '';
+  var fileName = tenderName.replace(/[^a-z0-9\s]/gi, '').replace(/\s+/g, '_');
+
+  if (mode === 'matched') {
+    if (rawText && rawText.length > 200) {
+      // Slot answers into original document
+      txt = slotAnswersIntoOriginal(rawText, qa);
+      fileName += '_COMPLETED.txt';
+    } else {
+      // No raw text — build in detected format
+      txt = header + buildInFormat(qa, fmt);
+      fileName += '_' + fmt + '.txt';
+    }
+
+  } else if (mode === 'plain') {
+    txt = header;
+    qa.forEach(function(item) {
+      txt += 'Question ' + item.num + '\n';
+      txt += item.q + '\n\n';
+      txt += 'Response:\n' + item.a + '\n\n';
+      txt += '-'.repeat(60) + '\n\n';
+    });
+    fileName += '_QandA.txt';
+
+  } else if (mode === 'answers-only') {
+    txt = qa.map(function(item) {
+      return item.num + '. ' + item.a;
+    }).join('\n\n' + '-'.repeat(40) + '\n\n');
+    fileName += '_Answers.txt';
+  }
+
+  // Download
+  var blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  if (typeof showVaultToast === 'function') showVaultToast('✓ Downloaded — ' + fileName);
+};
+
+// ── SLOT ANSWERS INTO ORIGINAL DOCUMENT ──────────────────────────────────
+function slotAnswersIntoOriginal(rawText, qa) {
+  var out = rawText;
+
+  qa.forEach(function(item) {
+    if (!item.q || !item.a || item.a === '[Not yet answered]') return;
+
+    // Try to find this question in the raw text
+    var snippet = item.q.substring(0, 60).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+    var qRegex = new RegExp(snippet, 'i');
+    var match = out.match(qRegex);
+
+    if (!match) return;
+
+    var qPos = out.search(qRegex);
+    var afterQ = qPos + match[0].length;
+
+    // Find end of question line
+    var lineEnd = out.indexOf('\n', afterQ);
+    if (lineEnd === -1) lineEnd = afterQ;
+
+    // Find what's between this question and the next
+    var nextQPos = out.length;
+    // Look for next numbered item or section header
+    var nextMatch = out.substring(lineEnd + 1).match(/\n\s*(\d+[\.)]\s+|[A-Z]\d+[\.)]\s+|Section\s+|SECTION\s+)/i);
+    if (nextMatch) nextQPos = lineEnd + 1 + out.substring(lineEnd + 1).indexOf(nextMatch[0]);
+
+    var between = out.substring(lineEnd, nextQPos);
+
+    // Check if there's a response placeholder to replace
+    var hasPlaceholder = /response|please (provide|describe|explain|detail|outline)|insert|type here|\[.*\]/i.test(between);
+
+    if (hasPlaceholder) {
+      // Replace the placeholder area with our answer
+      var newBetween = '\n\nResponse:\n' + item.a + '\n\n';
+      out = out.substring(0, lineEnd) + newBetween + out.substring(nextQPos);
+    } else if (between.trim().length < 20) {
+      // Empty — just insert
+      out = out.substring(0, lineEnd) + '\n\nResponse:\n' + item.a + '\n\n' + out.substring(lineEnd + between.length);
+    }
+    // If there's already content there, don't overwrite it
+  });
+
+  return out;
+}
+
+// ── BUILD IN DETECTED FORMAT ──────────────────────────────────────────────
+function buildInFormat(qa, fmt) {
+  if (fmt === 'lettered') {
+    return qa.map(function(item) {
+      return 'Q' + item.num + '. ' + item.q + '\n\nResponse:\n' + item.a + '\n\n' + '-'.repeat(60) + '\n\n';
+    }).join('');
+  }
+  if (fmt === 'sectioned') {
+    return qa.map(function(item) {
+      return 'Section ' + item.num + ' — ' + item.q.substring(0, 60) + '\n\n' +
+             item.q + '\n\nResponse:\n' + item.a + '\n\n' + '='.repeat(60) + '\n\n';
+    }).join('');
+  }
+  if (fmt === 'table') {
+    var rows = ['Question\tResponse'];
+    qa.forEach(function(item) { rows.push(item.q + '\t' + item.a.replace(/\n/g, ' ')); });
+    return rows.join('\n');
+  }
+  if (fmt === 'word-limited') {
+    return qa.map(function(item) {
+      var wordCount = item.a.split(/\s+/).filter(Boolean).length;
+      return item.num + '. ' + item.q + '\n' +
+             '[' + wordCount + ' words]\n\n' +
+             item.a + '\n\n' + '-'.repeat(60) + '\n\n';
+    }).join('');
+  }
+  // Default: numbered
+  return qa.map(function(item) {
+    return item.num + '. ' + item.q + '\n\nResponse:\n' + item.a + '\n\n' + '-'.repeat(60) + '\n\n';
+  }).join('');
+}
+
+// ── SHOW DOWNLOAD BTN WHEN ANSWERS EXIST ─────────────────────────────────
+function checkShowDownloadBtn() {
+  var blocks = document.querySelectorAll('#questions-container .question-block');
+  var btn = document.getElementById('sk-download-btn');
+  if (!btn) return;
+  var hasAnswers = false;
+  blocks.forEach(function(b, i) {
+    if ((document.getElementById('answer-' + (i+1))?.value || '').trim().length > 10) hasAnswers = true;
+  });
+  btn.style.display = hasAnswers ? 'inline-flex' : 'none';
+}
+
+// Check periodically and on answer changes
+setInterval(checkShowDownloadBtn, 3000);
+var _origWsChanged = window.wsAnswerChanged;
+window.wsAnswerChanged = function() {
+  if (typeof _origWsChanged === 'function') _origWsChanged();
+  checkShowDownloadBtn();
+};
+
+setTimeout(checkShowDownloadBtn, 1500);
 
 })();
 </script>
