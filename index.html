@@ -9816,5 +9816,1317 @@ setTimeout(checkShowDownloadBtn, 1500);
 
 })();
 </script>
+
+<script>
+// ============================================================
+// TENDERWORKS v12 PATCH
+// Adds: Team/User system, Outstanding tab, Deadline intelligence,
+//        Viability gate, Single drop-zone entry, Upload fix,
+//        Status map, Chase & handover, Audit trail
+// ============================================================
+(function() {
+
+'use strict';
+
+// ── STORAGE KEYS ────────────────────────────────────────────
+const TW_TEAM_KEY        = 'tw-team-v1';
+const TW_ACTIVE_USER_KEY = 'tw-active-user-v1';
+const TW_CHASE_KEY       = 'tw-chase-log-v1';
+const TW_AUDIT_KEY       = 'tw-audit-log-v1';
+const TW_OUTSTANDING_KEY = 'tw-outstanding-v1';
+const TENDERS_KEY        = 'skai-tenders-v1';
+
+// ── TEAM HELPERS ─────────────────────────────────────────────
+const TEAM_COLOURS = ['#7c3aed','#10b981','#f59e0b','#3b82f6','#ef4444','#ec4899','#06b6d4','#84cc16'];
+
+function getTeam() {
+  try { return JSON.parse(localStorage.getItem(TW_TEAM_KEY) || '[]'); } catch(e) { return []; }
+}
+function saveTeam(t) { localStorage.setItem(TW_TEAM_KEY, JSON.stringify(t)); }
+
+function getActiveUser() {
+  try { return JSON.parse(localStorage.getItem(TW_ACTIVE_USER_KEY) || 'null'); } catch(e) { return null; }
+}
+function setActiveUser(u) { localStorage.setItem(TW_ACTIVE_USER_KEY, JSON.stringify(u)); }
+
+function getOrCreateTeam() {
+  let team = getTeam();
+  if (!team.length) {
+    // Seed with company owner
+    const companyName = localStorage.getItem('skai-company-name') || 'Your Company';
+    team = [{ id: 1, name: 'Me', role: 'Bid Lead', colour: TEAM_COLOURS[0], initials: 'ME' }];
+    saveTeam(team);
+  }
+  return team;
+}
+
+// ── CHASE LOG HELPERS ─────────────────────────────────────────
+function getChaseLog() {
+  try { return JSON.parse(localStorage.getItem(TW_CHASE_KEY) || '[]'); } catch(e) { return []; }
+}
+function saveChaseLog(l) { localStorage.setItem(TW_CHASE_KEY, JSON.stringify(l)); }
+
+function addChaseEntry(tenderId, tenderName, questionNum, questionText, assignedTo, dueBack, chasedBy) {
+  const log = getChaseLog();
+  const id = Date.now();
+  log.push({
+    id, tenderId, tenderName, questionNum, questionText,
+    assignedTo, dueBack, chasedBy,
+    status: 'pending', // pending | received | overdue
+    chasedAt: new Date().toISOString(),
+    receivedAt: null,
+    chaseCount: 1
+  });
+  saveChaseLog(log);
+  addAuditEntry(tenderId, questionNum, `Chased → ${assignedTo}`, chasedBy);
+  renderOutstandingBadge();
+  return id;
+}
+
+function markChaseReceived(chaseId, receivedBy) {
+  const log = getChaseLog();
+  const entry = log.find(e => e.id === chaseId);
+  if (!entry) return;
+  entry.status = 'received';
+  entry.receivedAt = new Date().toISOString();
+  saveChaseLog(log);
+  addAuditEntry(entry.tenderId, entry.questionNum, 'Response received', receivedBy);
+  renderOutstandingBadge();
+}
+
+function reChaseEntry(chaseId, chasedBy) {
+  const log = getChaseLog();
+  const entry = log.find(e => e.id === chaseId);
+  if (!entry) return;
+  entry.chaseCount = (entry.chaseCount || 1) + 1;
+  entry.chasedAt = new Date().toISOString();
+  entry.status = 'pending';
+  saveChaseLog(log);
+  addAuditEntry(entry.tenderId, entry.questionNum, `Re-chased → ${entry.assignedTo}`, chasedBy);
+  renderOutstandingBadge();
+}
+
+function updateChaseStatuses() {
+  const log = getChaseLog();
+  let changed = false;
+  const now = Date.now();
+  log.forEach(entry => {
+    if (entry.status === 'pending' && entry.dueBack) {
+      const due = new Date(entry.dueBack).getTime();
+      if (now > due) { entry.status = 'overdue'; changed = true; }
+    }
+  });
+  if (changed) saveChaseLog(log);
+}
+
+// ── AUDIT LOG ─────────────────────────────────────────────────
+function getAuditLog(tenderId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(TW_AUDIT_KEY) || '{}');
+    return all[tenderId] || [];
+  } catch(e) { return []; }
+}
+function saveAuditLog(tenderId, log) {
+  try {
+    const all = JSON.parse(localStorage.getItem(TW_AUDIT_KEY) || '{}');
+    all[tenderId] = log;
+    localStorage.setItem(TW_AUDIT_KEY, JSON.stringify(all));
+  } catch(e) {}
+}
+function addAuditEntry(tenderId, questionNum, action, user) {
+  if (!tenderId) return;
+  const log = getAuditLog(tenderId);
+  log.push({
+    questionNum,
+    action,
+    user: user || (getActiveUser()?.name) || 'Unknown',
+    at: new Date().toISOString()
+  });
+  // Keep max 200 entries per tender
+  if (log.length > 200) log.splice(0, log.length - 200);
+  saveAuditLog(tenderId, log);
+}
+
+// ── DEADLINE HELPERS ─────────────────────────────────────────
+function getDaysRemaining(deadlineStr) {
+  if (!deadlineStr) return null;
+  const deadline = new Date(deadlineStr);
+  const now = new Date();
+  now.setHours(0,0,0,0);
+  deadline.setHours(0,0,0,0);
+  return Math.round((deadline - now) / (1000 * 60 * 60 * 24));
+}
+
+function getDeadlineColour(days) {
+  if (days === null) return 'var(--muted)';
+  if (days < 0) return '#6b7280';
+  if (days <= 2) return '#ef4444';
+  if (days <= 5) return '#f97316';
+  if (days <= 14) return '#f59e0b';
+  return '#10b981';
+}
+
+function getDeadlineLabel(days) {
+  if (days === null) return 'No deadline set';
+  if (days < 0) return 'Overdue by ' + Math.abs(days) + ' day' + (Math.abs(days) !== 1 ? 's' : '');
+  if (days === 0) return 'Due TODAY';
+  if (days === 1) return 'Due TOMORROW';
+  return 'Due in ' + days + ' days';
+}
+
+function getUrgencyIcon(days) {
+  if (days === null) return '📅';
+  if (days < 0) return '💀';
+  if (days <= 2) return '🔴';
+  if (days <= 5) return '🟠';
+  if (days <= 14) return '🟡';
+  return '🟢';
+}
+
+// ── OUTSTANDING BADGE COUNT ────────────────────────────────────
+function getOutstandingCount() {
+  updateChaseStatuses();
+  const log = getChaseLog();
+  return log.filter(e => e.status === 'pending' || e.status === 'overdue').length;
+}
+
+function renderOutstandingBadge() {
+  const count = getOutstandingCount();
+  const badge = document.getElementById('tw-outstanding-badge');
+  if (badge) {
+    badge.textContent = count > 0 ? count : '';
+    badge.style.display = count > 0 ? 'inline-flex' : 'none';
+  }
+  // Also update the nav tab
+  const navBadge = document.getElementById('tw-nav-outstanding-badge');
+  if (navBadge) {
+    navBadge.textContent = count > 0 ? count : '';
+    navBadge.style.display = count > 0 ? 'inline-flex' : 'none';
+  }
+}
+
+// ── INJECT NAV TAB: OUTSTANDING ────────────────────────────────
+function injectOutstandingTab() {
+  if (document.getElementById('tw-outstanding-tab')) return;
+  const nav = document.querySelector('nav');
+  if (!nav) return;
+
+  const tab = document.createElement('button');
+  tab.id = 'tw-outstanding-tab';
+  tab.className = 'nav-tab';
+  tab.innerHTML = `⚠️ Outstanding <span id="tw-nav-outstanding-badge" style="display:none;background:#ef4444;color:white;border-radius:10px;font-size:10px;font-weight:800;padding:1px 6px;margin-left:4px;"></span>`;
+  tab.onclick = function() { showOutstandingSection(); };
+  nav.appendChild(tab);
+}
+
+// ── INJECT WHO AM I BAR ─────────────────────────────────────────
+function injectUserBar() {
+  if (document.getElementById('tw-user-bar')) return;
+  const header = document.querySelector('header .header-right');
+  if (!header) return;
+
+  const bar = document.createElement('div');
+  bar.id = 'tw-user-bar';
+  bar.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer;';
+  bar.onclick = showTeamSwitcher;
+
+  renderUserBar();
+}
+
+function renderUserBar() {
+  let bar = document.getElementById('tw-user-bar');
+  if (!bar) return;
+  const user = getActiveUser();
+  const team = getOrCreateTeam();
+
+  if (!user) {
+    // Auto-pick first team member or prompt
+    if (team.length) {
+      setActiveUser(team[0]);
+      renderUserBar();
+      return;
+    }
+    bar.innerHTML = `<div style="font-size:12px;color:var(--muted);padding:5px 10px;background:var(--glass);border:1px solid var(--border);border-radius:8px;">👤 Who are you?</div>`;
+    return;
+  }
+
+  bar.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;background:var(--glass);border:1px solid var(--border);border-radius:8px;padding:5px 12px;">
+      <div style="width:24px;height:24px;border-radius:50%;background:${user.colour};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:white;flex-shrink:0;">${user.initials || user.name.substring(0,2).toUpperCase()}</div>
+      <div style="font-size:12px;font-weight:600;color:var(--text);">${user.name}</div>
+      <div style="font-size:10px;color:var(--muted);">▾</div>
+    </div>`;
+
+  // Append to header right if not already there
+  const headerRight = document.querySelector('header .header-right');
+  if (headerRight && !headerRight.contains(bar)) {
+    headerRight.insertBefore(bar, headerRight.firstChild);
+  }
+}
+
+// ── TEAM SWITCHER MODAL ────────────────────────────────────────
+window.showTeamSwitcher = function() {
+  const team = getOrCreateTeam();
+  const activeUser = getActiveUser();
+
+  let modal = document.getElementById('tw-team-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'tw-team-modal';
+    modal.className = 'modal-overlay';
+    modal.onclick = function(e) { if (e.target === modal) modal.classList.remove('open'); };
+    document.body.appendChild(modal);
+  }
+
+  const memberHtml = team.map(m => `
+    <div onclick="switchToUser(${m.id})" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:8px;cursor:pointer;border:1px solid ${m.id === activeUser?.id ? 'rgba(124,58,237,0.5)' : 'var(--border)'};background:${m.id === activeUser?.id ? 'rgba(124,58,237,0.1)' : 'var(--glass)'};margin-bottom:8px;transition:all 0.15s;"
+      onmouseover="this.style.borderColor='rgba(124,58,237,0.4)'" onmouseout="this.style.borderColor='${m.id === activeUser?.id ? 'rgba(124,58,237,0.5)' : 'var(--border)'}'">
+      <div style="width:36px;height:36px;border-radius:50%;background:${m.colour};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:white;flex-shrink:0;">${m.initials || m.name.substring(0,2).toUpperCase()}</div>
+      <div style="flex:1;">
+        <div style="font-size:13px;font-weight:700;color:var(--text);">${m.name}</div>
+        <div style="font-size:11px;color:var(--muted);">${m.role || ''}</div>
+      </div>
+      ${m.id === activeUser?.id ? '<span style="font-size:11px;color:#10b981;font-weight:700;">● Active</span>' : ''}
+    </div>`).join('');
+
+  modal.innerHTML = `<div class="modal" style="max-width:420px;">
+    <div class="modal-title">👤 Who's working today?</div>
+    <button class="modal-close" onclick="document.getElementById('tw-team-modal').classList.remove('open')">✕</button>
+    <div style="margin-bottom:16px;">${memberHtml}</div>
+    <div style="border-top:1px solid var(--border);padding-top:14px;">
+      <div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px;">Add team member</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+        <input type="text" id="new-member-name" placeholder="Name" style="font-size:12px;padding:7px 10px;border-radius:6px;background:var(--navy2);border:1px solid var(--border);color:var(--text);">
+        <input type="text" id="new-member-role" placeholder="Role e.g. Compliance" style="font-size:12px;padding:7px 10px;border-radius:6px;background:var(--navy2);border:1px solid var(--border);color:var(--text);">
+      </div>
+      <button onclick="addTeamMember()" style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:white;border:none;border-radius:8px;padding:8px 18px;font-size:12px;font-weight:700;cursor:pointer;">+ Add</button>
+    </div>
+    ${team.length > 1 ? `<div style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px;">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Handover — if someone is off sick:</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <select id="tw-reassign-from" style="font-size:11px;padding:5px 8px;border-radius:6px;background:var(--navy2);border:1px solid var(--border);color:var(--text);">
+          ${team.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}
+        </select>
+        <span style="font-size:11px;color:var(--muted);">→ reassign to →</span>
+        <select id="tw-reassign-to" style="font-size:11px;padding:5px 8px;border-radius:6px;background:var(--navy2);border:1px solid var(--border);color:var(--text);">
+          ${team.map(m=>`<option value="${m.id}">${m.name}</option>`).join('')}
+        </select>
+        <button onclick="doHandover()" style="background:rgba(245,158,11,0.2);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);border-radius:6px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;">Reassign</button>
+      </div>
+    </div>` : ''}
+  </div>`;
+
+  modal.classList.add('open');
+};
+
+window.switchToUser = function(id) {
+  const team = getTeam();
+  const user = team.find(m => m.id === id);
+  if (!user) return;
+  setActiveUser(user);
+  renderUserBar();
+  document.getElementById('tw-team-modal')?.classList.remove('open');
+  if (typeof showVaultToast === 'function') showVaultToast('Switched to ' + user.name);
+  renderOutstandingBadge();
+};
+
+window.addTeamMember = function() {
+  const name = document.getElementById('new-member-name')?.value?.trim();
+  if (!name) return;
+  const role = document.getElementById('new-member-role')?.value?.trim() || '';
+  const team = getTeam();
+  const id = Date.now();
+  const colour = TEAM_COLOURS[team.length % TEAM_COLOURS.length];
+  const initials = name.split(/\s+/).map(w => w[0]).join('').toUpperCase().substring(0,2);
+  team.push({ id, name, role, colour, initials });
+  saveTeam(team);
+  showTeamSwitcher();
+};
+
+window.doHandover = function() {
+  const fromId = parseInt(document.getElementById('tw-reassign-from')?.value);
+  const toId   = parseInt(document.getElementById('tw-reassign-to')?.value);
+  if (fromId === toId) { alert('Select different people.'); return; }
+  const team = getTeam();
+  const fromUser = team.find(m => m.id === fromId);
+  const toUser   = team.find(m => m.id === toId);
+  if (!fromUser || !toUser) return;
+
+  // Reassign all chase log entries
+  const log = getChaseLog();
+  let count = 0;
+  log.forEach(entry => {
+    if (entry.assignedTo === fromUser.name && entry.status === 'pending') {
+      entry.assignedTo = toUser.name;
+      entry.reassignedFrom = fromUser.name;
+      entry.reassignedAt = new Date().toISOString();
+      count++;
+    }
+  });
+  saveChaseLog(log);
+  document.getElementById('tw-team-modal')?.classList.remove('open');
+  if (typeof showVaultToast === 'function') showVaultToast(`✓ ${count} items reassigned from ${fromUser.name} to ${toUser.name}`);
+  renderOutstandingSection();
+};
+
+// ── DEADLINE BANNER (home page) ────────────────────────────────
+function injectDeadlineBanner() {
+  const homeSection = document.getElementById('section-home');
+  if (!homeSection) return;
+  if (document.getElementById('tw-deadline-banner')) return;
+
+  const banner = document.createElement('div');
+  banner.id = 'tw-deadline-banner';
+  banner.style.cssText = 'margin-bottom:16px;';
+  homeSection.insertBefore(banner, homeSection.firstChild);
+  refreshDeadlineBanner();
+}
+
+function refreshDeadlineBanner() {
+  const banner = document.getElementById('tw-deadline-banner');
+  if (!banner) return;
+
+  let tenders = [];
+  try { tenders = JSON.parse(localStorage.getItem(TENDERS_KEY) || '[]'); } catch(e) {}
+
+  updateChaseStatuses();
+  const log = getChaseLog();
+  const overdueChases = log.filter(e => e.status === 'overdue').length;
+  const urgentTenders = tenders.filter(t => {
+    if (!t.deadline) return false;
+    const days = getDaysRemaining(t.deadline);
+    if (days === null || days < 0) return false;
+    const answered = (t.answers||[]).filter(a=>a&&!a.startsWith('[SKAI')).length;
+    const total = (t.questions||[]).length;
+    return days <= 2 && answered < total;
+  });
+
+  let html = '';
+  if (urgentTenders.length) {
+    html += `<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px;">
+      <span style="font-size:18px;">🔴</span>
+      <div style="font-size:13px;color:#ef4444;font-weight:600;">${urgentTenders.length} tender${urgentTenders.length>1?'s':''} ${urgentTenders.length>1?'have':'has'} a deadline in under 48 hours with outstanding items — <strong>${urgentTenders.map(t=>t.name||'Untitled').join(', ')}</strong></div>
+    </div>`;
+  }
+  if (overdueChases > 0) {
+    html += `<div style="background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.25);border-radius:10px;padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px;">
+      <span style="font-size:18px;">🟠</span>
+      <div style="font-size:13px;color:#f97316;font-weight:600;">${overdueChases} chase request${overdueChases>1?'s have':' has'} had no response past the due date — <a href="#" onclick="showOutstandingSection();return false;" style="color:#f59e0b;text-decoration:underline;">view Outstanding</a></div>
+    </div>`;
+  }
+  banner.innerHTML = html;
+}
+
+// ── STATUS MAP — injected into workspace ──────────────────────
+function injectStatusMap(tenderId, tender) {
+  if (!tenderId || !tender) return;
+  const workspace = document.getElementById('workspace-active');
+  if (!workspace) return;
+
+  // Remove old one
+  document.getElementById('tw-status-map')?.remove();
+
+  const days = getDaysRemaining(tender.deadline);
+  const colour = getDeadlineColour(days);
+  const icon = getUrgencyIcon(days);
+  const label = getDeadlineLabel(days);
+  const answered = (tender.answers||[]).filter(a=>a&&!a.startsWith('[SKAI')).length;
+  const total = (tender.questions||[]).length;
+  const pct = total ? Math.round((answered/total)*100) : 0;
+
+  // Chase entries for this tender
+  updateChaseStatuses();
+  const chases = getChaseLog().filter(e => e.tenderId === tenderId && e.status !== 'received');
+
+  // Team working on this tender
+  const team = getTeam();
+  const activeUser = getActiveUser();
+  const tenderTeam = tender.teamMembers || (activeUser ? [activeUser.name] : []);
+
+  const smartMsg = buildSmartMessage(tender, days, chases);
+
+  const map = document.createElement('div');
+  map.id = 'tw-status-map';
+  map.style.cssText = 'margin-bottom:14px;';
+
+  map.innerHTML = `
+    <div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;padding:14px 18px;">
+      <!-- Top row: deadline + progress -->
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-size:16px;">${icon}</span>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:${colour};">${label}</div>
+            <div style="font-size:11px;color:var(--muted);">${tender.customer || 'No customer set'} · ${tender.type || 'PQQ'}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          ${team.length ? `<div style="display:flex;align-items:center;gap:4px;">
+            ${team.map(name => {
+              const member = getTeam().find(m => m.name === name);
+              const colour2 = member ? member.colour : '#7c3aed';
+              const init = name.substring(0,2).toUpperCase();
+              return `<div title="${name}" style="width:22px;height:22px;border-radius:50%;background:${colour2};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:white;">${init}</div>`;
+            }).join('')}
+            <span style="font-size:10px;color:var(--muted);margin-left:2px;">on this bid</span>
+          </div>` : ''}
+          <div style="font-size:12px;color:var(--muted);">${answered}/${total} answered · ${pct}%</div>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:4px;margin-bottom:10px;overflow:hidden;">
+        <div style="width:${pct}%;height:100%;background:${pct===100?'#10b981':'linear-gradient(90deg,#7c3aed,#4f46e5)'};border-radius:4px;transition:width 0.5s;"></div>
+      </div>
+
+      <!-- Smart message -->
+      ${smartMsg ? `<div style="font-size:12px;color:${days !== null && days <=2 ? '#ef4444' : '#a78bfa'};margin-bottom:${chases.length?'10px':'0'};">${smartMsg}</div>` : ''}
+
+      <!-- Chase items -->
+      ${chases.length ? `
+        <div style="border-top:1px solid var(--border);padding-top:10px;display:flex;flex-direction:column;gap:6px;" id="tw-chase-list">
+          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:2px;">Waiting on responses</div>
+          ${chases.map(c => {
+            const daysWaiting = Math.round((Date.now() - new Date(c.chasedAt).getTime()) / 86400000);
+            const isOverdue = c.status === 'overdue';
+            return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;background:${isOverdue?'rgba(239,68,68,0.06)':'rgba(255,255,255,0.02)'};border:1px solid ${isOverdue?'rgba(239,68,68,0.25)':'var(--border)'};border-radius:7px;padding:8px 12px;flex-wrap:wrap;">
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:11px;font-weight:600;color:${isOverdue?'#ef4444':'var(--text)'};">Q${c.questionNum} → ${c.assignedTo} ${isOverdue?'⚠ OVERDUE':''}</div>
+                <div style="font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.questionText ? c.questionText.substring(0,60)+'...' : ''}</div>
+                <div style="font-size:10px;color:var(--muted);">Chased ${daysWaiting} day${daysWaiting!==1?'s':''} ago${c.chaseCount>1?' · re-chased '+c.chaseCount+' times':''}</div>
+              </div>
+              <div style="display:flex;gap:6px;flex-shrink:0;">
+                <button onclick="twReChase(${c.id})" style="background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);border-radius:5px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;">↺ Re-chase</button>
+                <button onclick="twMarkReceived(${c.id})" style="background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3);border-radius:5px;padding:4px 10px;font-size:10px;font-weight:700;cursor:pointer;">✓ Got it</button>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>` : ''}
+    </div>`;
+
+  // Insert before the tabs
+  const tabs = workspace.querySelector('[id="ws-tab-questions"]')?.closest('[style*="display:flex;gap:2px"]');
+  if (tabs) tabs.parentNode.insertBefore(map, tabs);
+  else workspace.insertBefore(map, workspace.firstChild);
+}
+
+function buildSmartMessage(tender, days, chases) {
+  const answered = (tender.answers||[]).filter(a=>a&&!a.startsWith('[SKAI')).length;
+  const total = (tender.questions||[]).length;
+  const outstanding = total - answered;
+  const overdueChases = chases.filter(c => c.status === 'overdue').length;
+
+  if (!total) return null;
+  if (answered === total && !chases.length) return '✓ All questions answered — ready to review and submit';
+  if (days !== null && days <= 2 && outstanding > 0) return `⚠ ${outstanding} item${outstanding!==1?'s':''} still outstanding with only ${days === 0 ? 'today' : days + ' day' + (days!==1?'s':'')} left — chase these now`;
+  if (overdueChases > 0) return `⚠ ${overdueChases} chase${overdueChases>1?'s have':' has'} had no response past the due date`;
+  if (chases.length > 0) return `${chases.length} item${chases.length!==1?'s':''} waiting on responses — chase if urgent`;
+  if (outstanding > 0) return `${outstanding} question${outstanding!==1?'s':''} still to answer`;
+  return null;
+}
+
+// ── CHASE MODAL — per question ──────────────────────────────────
+window.twShowChaseModal = function(tenderId, tenderName, qNum, qText, deadline) {
+  let modal = document.getElementById('tw-chase-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'tw-chase-modal';
+    modal.className = 'modal-overlay';
+    modal.onclick = function(e) { if (e.target === modal) modal.classList.remove('open'); };
+    document.body.appendChild(modal);
+  }
+
+  const team = getTeam();
+  const activeUser = getActiveUser();
+  const defaultDue = deadline ? new Date(new Date(deadline).getTime() - 2 * 86400000).toISOString().split('T')[0] : '';
+  const dlNote = deadline ? ` (tender deadline: ${new Date(deadline).toLocaleDateString('en-GB',{day:'numeric',month:'long'})})` : '';
+
+  modal.innerHTML = `<div class="modal" style="max-width:520px;">
+    <div class="modal-title">📨 Chase for Q${qNum} Input</div>
+    <button class="modal-close" onclick="document.getElementById('tw-chase-modal').classList.remove('open')">✕</button>
+    <div style="background:var(--glass);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--text);">
+      <strong>Q${qNum}:</strong> ${qText ? qText.substring(0,120) : ''}${qText && qText.length > 120 ? '...' : ''}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+      <div>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Assign to</label>
+        <input type="text" id="tw-chase-to" list="tw-chase-team-list" placeholder="Name or email" value=""
+          style="font-size:12px;padding:7px 10px;border-radius:6px;background:var(--navy2);border:1px solid var(--border);color:var(--text);width:100%;">
+        <datalist id="tw-chase-team-list">${team.map(m=>`<option value="${m.name}">`).join('')}</datalist>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Need response by${dlNote}</label>
+        <input type="date" id="tw-chase-due" value="${defaultDue}"
+          style="font-size:12px;padding:7px 10px;border-radius:6px;background:var(--navy2);border:1px solid var(--border);color:var(--text);width:100%;">
+      </div>
+    </div>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px;">Draft chase email (edit as needed)</label>
+      <textarea id="tw-chase-email" rows="8" style="width:100%;font-size:12px;resize:vertical;line-height:1.6;"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button onclick="twSendChase(${tenderId},'${encodeURIComponent(tenderName)}',${qNum},'${encodeURIComponent(qText||'')}')" style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:white;border:none;border-radius:8px;padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;">✓ Log Chase & Copy Email</button>
+      <button onclick="document.getElementById('tw-chase-modal').classList.remove('open')" style="background:var(--glass);border:1px solid var(--border);border-radius:8px;padding:9px 16px;font-size:12px;color:var(--muted);cursor:pointer;">Cancel</button>
+    </div>
+  </div>`;
+
+  // Build draft email
+  const tenderNameDecoded = tenderName;
+  const toField = document.getElementById('tw-chase-to');
+  const emailArea = document.getElementById('tw-chase-email');
+
+  function buildEmail() {
+    const to = toField?.value?.trim() || 'there';
+    const firstName = to.split(/[\s@,]/)[0] || 'there';
+    const dueDate = document.getElementById('tw-chase-due')?.value;
+    const dueLine = dueDate ? `If you could get this back to me by ${new Date(dueDate).toLocaleDateString('en-GB',{day:'numeric',month:'long'})} that would be a big help` : 'If you could get this over when you get a chance that would be great';
+    const deadlineLine = deadline ? ` — the tender submission is ${new Date(deadline).toLocaleDateString('en-GB',{day:'numeric',month:'long'})} so timing is tight` : '';
+    if (emailArea) emailArea.value = `Hi ${firstName},\n\nHope you're well. I'm putting together the ${tenderNameDecoded} bid and just need a couple of things confirmed from your end.\n\n${qText ? qText.substring(0,200) : 'Please can you provide the relevant information for this section.'}\n\n${dueLine}${deadlineLine}.\n\nCheers`;
+  }
+
+  buildEmail();
+  modal.classList.add('open');
+
+  setTimeout(() => {
+    const toEl = document.getElementById('tw-chase-to');
+    const dueEl = document.getElementById('tw-chase-due');
+    if (toEl) toEl.addEventListener('input', buildEmail);
+    if (dueEl) dueEl.addEventListener('change', buildEmail);
+  }, 100);
+};
+
+window.twSendChase = function(tenderId, tenderNameEncoded, qNum, qTextEncoded) {
+  const to = document.getElementById('tw-chase-to')?.value?.trim();
+  const due = document.getElementById('tw-chase-due')?.value;
+  const emailBody = document.getElementById('tw-chase-email')?.value || '';
+  const tenderName = decodeURIComponent(tenderNameEncoded);
+  const qText = decodeURIComponent(qTextEncoded);
+  const activeUser = getActiveUser();
+
+  if (!to) { alert('Please enter a name to chase.'); return; }
+
+  // Log the chase
+  addChaseEntry(tenderId, tenderName, qNum, qText, to, due, activeUser?.name || 'Unknown');
+
+  // Copy email to clipboard
+  navigator.clipboard.writeText(emailBody).then(() => {
+    if (typeof showVaultToast === 'function') showVaultToast('✓ Chase logged + email copied to clipboard');
+  }).catch(() => {
+    if (typeof showVaultToast === 'function') showVaultToast('✓ Chase logged');
+  });
+
+  document.getElementById('tw-chase-modal')?.classList.remove('open');
+
+  // Refresh status map
+  const activeTenderId = window._activeTenderId;
+  if (activeTenderId) {
+    try {
+      const tenders = JSON.parse(localStorage.getItem(TENDERS_KEY) || '[]');
+      const t = tenders.find(x => x.id === activeTenderId);
+      if (t) injectStatusMap(activeTenderId, t);
+    } catch(e) {}
+  }
+  renderOutstandingBadge();
+  refreshDeadlineBanner();
+};
+
+window.twReChase = function(chaseId) {
+  const activeUser = getActiveUser();
+  reChaseEntry(chaseId, activeUser?.name || 'Unknown');
+  const log = getChaseLog();
+  const entry = log.find(e => e.id === chaseId);
+  if (entry) {
+    // Copy re-chase email
+    const to = entry.assignedTo;
+    const firstName = to.split(/[\s@,]/)[0];
+    const email = `Hi ${firstName},\n\nJust following up on my earlier message about the ${entry.tenderName} bid — we're getting close to the deadline and still need the information for Q${entry.questionNum}.\n\nIf you could get this back to me as soon as possible that would be a great help.\n\nCheers`;
+    navigator.clipboard.writeText(email).catch(() => {});
+  }
+  if (typeof showVaultToast === 'function') showVaultToast('↺ Re-chase logged + email copied');
+  // Refresh
+  const activeTenderId = window._activeTenderId;
+  if (activeTenderId) {
+    try {
+      const tenders = JSON.parse(localStorage.getItem(TENDERS_KEY) || '[]');
+      const t = tenders.find(x => x.id === activeTenderId);
+      if (t) injectStatusMap(activeTenderId, t);
+    } catch(e) {}
+  }
+  renderOutstandingSection();
+  renderOutstandingBadge();
+};
+
+window.twMarkReceived = function(chaseId) {
+  const activeUser = getActiveUser();
+  markChaseReceived(chaseId, activeUser?.name || 'Unknown');
+  if (typeof showVaultToast === 'function') showVaultToast('✓ Marked as received');
+  const activeTenderId = window._activeTenderId;
+  if (activeTenderId) {
+    try {
+      const tenders = JSON.parse(localStorage.getItem(TENDERS_KEY) || '[]');
+      const t = tenders.find(x => x.id === activeTenderId);
+      if (t) injectStatusMap(activeTenderId, t);
+    } catch(e) {}
+  }
+  renderOutstandingSection();
+  renderOutstandingBadge();
+  refreshDeadlineBanner();
+};
+
+// ── OUTSTANDING SECTION ────────────────────────────────────────
+function showOutstandingSection() {
+  // Hide all other sections
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tw-outstanding-tab')?.classList.add('active');
+
+  let section = document.getElementById('section-outstanding');
+  if (!section) {
+    section = document.createElement('div');
+    section.id = 'section-outstanding';
+    section.className = 'section active';
+    document.querySelector('main').appendChild(section);
+  } else {
+    section.classList.add('active');
+  }
+  renderOutstandingSection();
+}
+window.showOutstandingSection = showOutstandingSection;
+
+function renderOutstandingSection() {
+  const section = document.getElementById('section-outstanding');
+  if (!section) return;
+
+  updateChaseStatuses();
+  const log = getChaseLog();
+  const pending = log.filter(e => e.status === 'pending' || e.status === 'overdue');
+
+  let tenders = [];
+  try { tenders = JSON.parse(localStorage.getItem(TENDERS_KEY) || '[]'); } catch(e) {}
+
+  // Find all unanswered/unassigned questions across tenders
+  const unassigned = [];
+  tenders.forEach(t => {
+    if (!t.questions?.length) return;
+    const days = getDaysRemaining(t.deadline);
+    t.questions.forEach((q, i) => {
+      const ans = (t.answers||[])[i] || '';
+      const isAnswered = ans && !ans.startsWith('[SKAI') && ans.length > 10;
+      // Check if already chased
+      const alreadyChased = log.some(e => e.tenderId === t.id && e.questionNum === (i+1) && e.status !== 'received');
+      if (!isAnswered && !alreadyChased) {
+        unassigned.push({ tenderId: t.id, tenderName: t.name, qNum: i+1, qText: q, days, deadline: t.deadline });
+      }
+    });
+  });
+
+  // Group by urgency
+  const critical = pending.filter(e => {
+    const t = tenders.find(x => x.id === e.tenderId);
+    const days = t ? getDaysRemaining(t.deadline) : null;
+    return e.status === 'overdue' || (days !== null && days <= 2);
+  });
+  const thisWeek = pending.filter(e => {
+    const t = tenders.find(x => x.id === e.tenderId);
+    const days = t ? getDaysRemaining(t.deadline) : null;
+    return e.status !== 'overdue' && days !== null && days > 2 && days <= 7;
+  });
+  const inHand = pending.filter(e => !critical.includes(e) && !thisWeek.includes(e));
+
+  const unassignedCritical = unassigned.filter(u => u.days !== null && u.days <= 2);
+  const unassignedThisWeek = unassigned.filter(u => u.days !== null && u.days > 2 && u.days <= 7);
+
+  function chaseCard(e) {
+    const t = tenders.find(x => x.id === e.tenderId);
+    const days = t ? getDaysRemaining(t.deadline) : null;
+    const isOverdue = e.status === 'overdue';
+    const daysWaiting = Math.round((Date.now() - new Date(e.chasedAt).getTime()) / 86400000);
+    return `<div style="background:${isOverdue?'rgba(239,68,68,0.06)':'rgba(255,255,255,0.02)'};border:1px solid ${isOverdue?'rgba(239,68,68,0.3)':'var(--border)'};border-radius:10px;padding:14px 16px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:3px;">${e.tenderName || 'Unknown tender'}${days!==null?' · '+getDeadlineLabel(days):''}</div>
+          <div style="font-size:13px;font-weight:700;color:${isOverdue?'#ef4444':'var(--text)'};">Q${e.questionNum} — ${e.assignedTo} ${isOverdue?'⚠ NO REPLY':''}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:400px;">${e.questionText ? e.questionText.substring(0,80)+'...' : ''}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:3px;">Chased by ${e.chasedBy || '?'} · ${daysWaiting} day${daysWaiting!==1?'s':''} ago${e.chaseCount>1?' · chased '+e.chaseCount+' times':''}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0;">
+          <button onclick="twReChase(${e.id})" style="background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);border-radius:6px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;">↺ Re-chase</button>
+          <button onclick="twMarkReceived(${e.id})" style="background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3);border-radius:6px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;">✓ Received</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function unassignedCard(u) {
+    return `<div style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:3px;">${u.tenderName}${u.days!==null?' · '+getDeadlineLabel(u.days):''}</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);">Q${u.qNum} — Not yet assigned</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;max-width:400px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${u.qText ? u.qText.substring(0,80)+'...' : ''}</div>
+        </div>
+        <button onclick="twShowChaseModal(${u.tenderId},'${encodeURIComponent(u.tenderName)}',${u.qNum},'${encodeURIComponent(u.qText||'')}','${u.deadline||''}')"
+          style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:white;border:none;border-radius:6px;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;flex-shrink:0;">Chase Now</button>
+      </div>
+    </div>`;
+  }
+
+  const hasCritical = critical.length || unassignedCritical.length;
+  const hasThisWeek = thisWeek.length || unassignedThisWeek.length;
+  const hasInHand = inHand.length;
+
+  section.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px;">
+      <div>
+        <div class="section-header">⚠️ Outstanding Items</div>
+        <div class="section-sub">Everything blocked or waiting across all tenders — sorted by urgency</div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <div style="font-size:12px;color:var(--muted);padding:6px 12px;background:var(--glass);border:1px solid var(--border);border-radius:8px;">${pending.length} pending · ${unassigned.length} not yet chased</div>
+      </div>
+    </div>
+
+    ${!hasCritical && !hasThisWeek && !hasInHand && !unassigned.length ? `
+      <div style="text-align:center;padding:48px 24px;color:var(--muted);">
+        <div style="font-size:36px;margin-bottom:12px;">✓</div>
+        <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px;">Nothing outstanding</div>
+        <div style="font-size:13px;">All chases are resolved and tenders are progressing</div>
+      </div>` : ''}
+
+    ${hasCritical ? `
+      <div style="margin-bottom:20px;">
+        <div style="font-size:11px;font-weight:800;color:#ef4444;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid rgba(239,68,68,0.3);">🔴 Critical — needs attention now</div>
+        ${critical.map(chaseCard).join('')}
+        ${unassignedCritical.map(unassignedCard).join('')}
+      </div>` : ''}
+
+    ${hasThisWeek ? `
+      <div style="margin-bottom:20px;">
+        <div style="font-size:11px;font-weight:800;color:#f59e0b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid rgba(245,158,11,0.25);">🟡 This week</div>
+        ${thisWeek.map(chaseCard).join('')}
+        ${unassignedThisWeek.map(unassignedCard).join('')}
+      </div>` : ''}
+
+    ${hasInHand ? `
+      <div style="margin-bottom:20px;">
+        <div style="font-size:11px;font-weight:800;color:#10b981;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid rgba(16,185,129,0.25);">🟢 In hand</div>
+        ${inHand.map(chaseCard).join('')}
+      </div>` : ''}
+
+    ${unassigned.filter(u => !unassignedCritical.includes(u) && !unassignedThisWeek.includes(u)).length ? `
+      <div>
+        <div style="font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border);">Not yet chased</div>
+        ${unassigned.filter(u => !unassignedCritical.includes(u) && !unassignedThisWeek.includes(u)).slice(0,20).map(unassignedCard).join('')}
+      </div>` : ''}
+  `;
+}
+
+// ── INJECT CHASE BUTTON INTO QUESTION BLOCKS ─────────────────
+function injectChaseButtons() {
+  const blocks = document.querySelectorAll('#questions-container .question-block');
+  blocks.forEach((block, i) => {
+    const qNum = i + 1;
+    const btnId = `tw-chase-btn-${qNum}`;
+    if (document.getElementById(btnId)) return; // already added
+
+    const qText = block.querySelector('.q-text')?.textContent?.trim() || '';
+    const tenderId = window._activeTenderId;
+    const tenderName = document.getElementById('ws-tender-name')?.value || '';
+    const deadline = document.getElementById('ws-tender-deadline')?.value || '';
+
+    // Check if already chased
+    const log = getChaseLog();
+    const existing = log.find(e => e.tenderId === tenderId && e.questionNum === qNum && e.status !== 'received');
+
+    // Find the textarea area for this block
+    const textarea = block.querySelector('textarea');
+    if (!textarea) return;
+
+    // Create and insert chase button row after the textarea
+    const chaseRow = document.createElement('div');
+    chaseRow.id = btnId;
+    chaseRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;';
+
+    if (existing) {
+      const isOverdue = existing.status === 'overdue';
+      const daysAgo = Math.round((Date.now() - new Date(existing.chasedAt).getTime()) / 86400000);
+      chaseRow.innerHTML = `
+        <span style="font-size:10px;color:${isOverdue?'#ef4444':'#f59e0b'};background:${isOverdue?'rgba(239,68,68,0.12)':'rgba(245,158,11,0.1)'};border:1px solid ${isOverdue?'rgba(239,68,68,0.3)':'rgba(245,158,11,0.25)'};border-radius:5px;padding:2px 8px;">
+          ${isOverdue?'⚠ Overdue':'⏳'} Chased → ${existing.assignedTo} · ${daysAgo}d ago
+        </span>
+        <button onclick="twReChase(${existing.id})" style="background:none;border:none;color:#f59e0b;font-size:10px;cursor:pointer;font-weight:700;">↺ Re-chase</button>
+        <button onclick="twMarkReceived(${existing.id})" style="background:none;border:none;color:#10b981;font-size:10px;cursor:pointer;font-weight:700;">✓ Got it</button>`;
+    } else {
+      chaseRow.innerHTML = `<button onclick="twShowChaseModal(${tenderId},'${encodeURIComponent(tenderName)}',${qNum},'${encodeURIComponent(qText.substring(0,200))}','${deadline}')" style="background:rgba(124,58,237,0.1);color:#a78bfa;border:1px solid rgba(124,58,237,0.25);border-radius:5px;padding:3px 10px;font-size:10px;font-weight:700;cursor:pointer;">📨 Chase</button>`;
+    }
+
+    // Insert after textarea, before remix-box if present
+    const remixBox = block.querySelector('.remix-box');
+    if (remixBox) block.insertBefore(chaseRow, remixBox);
+    else block.appendChild(chaseRow);
+  });
+}
+
+// ── AUDIT LOG VIEWER ──────────────────────────────────────────
+window.showAuditLog = function(tenderId, qNum) {
+  const log = getAuditLog(tenderId).filter(e => !qNum || e.questionNum === qNum);
+  if (!log.length) { if (typeof showVaultToast === 'function') showVaultToast('No activity logged yet'); return; }
+
+  let modal = document.getElementById('tw-audit-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'tw-audit-modal';
+    modal.className = 'modal-overlay';
+    modal.onclick = function(e) { if (e.target === modal) modal.classList.remove('open'); };
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML = `<div class="modal" style="max-width:520px;max-height:70vh;overflow-y:auto;">
+    <div class="modal-title">📋 Activity Log${qNum?' — Q'+qNum:''}</div>
+    <button class="modal-close" onclick="document.getElementById('tw-audit-modal').classList.remove('open')">✕</button>
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      ${[...log].reverse().map(e => {
+        const team = getTeam();
+        const member = team.find(m => m.name === e.user);
+        const colour = member ? member.colour : '#7c3aed';
+        const init = (e.user||'?').substring(0,2).toUpperCase();
+        return `<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);">
+          <div style="width:24px;height:24px;border-radius:50%;background:${colour};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:white;flex-shrink:0;margin-top:1px;">${init}</div>
+          <div style="flex:1;">
+            <div style="font-size:12px;font-weight:600;color:var(--text);">${e.action}</div>
+            <div style="font-size:10px;color:var(--muted);">${e.user} · ${new Date(e.at).toLocaleDateString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+  modal.classList.add('open');
+};
+
+// ── DEADLINE DISPLAY IN SIDEBAR ────────────────────────────────
+// Patch the tenderCard rendering to include deadline
+const _origRenderSidebar = window.renderTenderSidebar;
+if (typeof _origRenderSidebar === 'function') {
+  window.renderTenderSidebar = function() {
+    _origRenderSidebar();
+    // Add deadline indicators to each sidebar card
+    setTimeout(() => {
+      let tenders = [];
+      try { tenders = JSON.parse(localStorage.getItem(TENDERS_KEY) || '[]'); } catch(e) {}
+      document.querySelectorAll('.tender-sidebar-item').forEach(item => {
+        const id = parseInt(item.dataset.id);
+        if (!id) return;
+        const t = tenders.find(x => x.id === id);
+        if (!t || !t.deadline) return;
+        if (item.querySelector('.tw-deadline-chip')) return;
+        const days = getDaysRemaining(t.deadline);
+        const colour = getDeadlineColour(days);
+        const icon = getUrgencyIcon(days);
+        const label = getDeadlineLabel(days);
+        const chip = document.createElement('div');
+        chip.className = 'tw-deadline-chip';
+        chip.style.cssText = `font-size:9px;color:${colour};margin-top:3px;font-weight:600;`;
+        chip.textContent = `${icon} ${label}`;
+        const nameEl = item.querySelector('[style*="font-size:12px"]');
+        if (nameEl?.parentNode) nameEl.parentNode.appendChild(chip);
+      });
+    }, 100);
+    renderOutstandingBadge();
+  };
+}
+
+// ── PATCH openTenderWorkspace to inject status map & audit ─────
+const _origOpenWorkspace = window.openTenderWorkspace;
+if (typeof _origOpenWorkspace === 'function') {
+  window.openTenderWorkspace = function(id) {
+    _origOpenWorkspace(id);
+    setTimeout(() => {
+      let tenders = [];
+      try { tenders = JSON.parse(localStorage.getItem(TENDERS_KEY) || '[]'); } catch(e) {}
+      const t = tenders.find(x => x.id === id);
+      if (t) {
+        injectStatusMap(id, t);
+        injectChaseButtons();
+        addAuditEntry(id, null, 'Tender opened', getActiveUser()?.name || '?');
+      }
+      renderOutstandingBadge();
+    }, 300);
+  };
+}
+
+// Re-inject chase buttons after SKAI answers
+const _origGenerateAll = window.generateAllAnswers;
+if (typeof _origGenerateAll === 'function') {
+  window.generateAllAnswers = async function() {
+    await _origGenerateAll();
+    setTimeout(() => {
+      injectChaseButtons();
+      const tenderId = window._activeTenderId;
+      if (tenderId) {
+        let tenders = [];
+        try { tenders = JSON.parse(localStorage.getItem(TENDERS_KEY) || '[]'); } catch(e) {}
+        const t = tenders.find(x => x.id === tenderId);
+        if (t) injectStatusMap(tenderId, t);
+      }
+    }, 500);
+  };
+}
+
+// ── VIABILITY GATE MODAL ─────────────────────────────────────
+// Enhanced: show as a gate BEFORE opening workspace after upload
+const _origLoadIntoBuilder = window.loadTenderIntoBuilder;
+if (typeof _origLoadIntoBuilder === 'function') {
+  window.loadTenderIntoBuilder = function(tender) {
+    // Show viability gate first, then proceed
+    showViabilityGate(tender, function() {
+      _origLoadIntoBuilder(tender);
+      setTimeout(() => {
+        const id = tender.id || window._activeTenderId;
+        if (id) {
+          let tenders = [];
+          try { tenders = JSON.parse(localStorage.getItem(TENDERS_KEY) || '[]'); } catch(e) {}
+          const t = tenders.find(x => x.id === id);
+          if (t) injectStatusMap(id, t);
+        }
+        injectChaseButtons();
+        renderOutstandingBadge();
+      }, 600);
+    });
+  };
+}
+
+function showViabilityGate(tender, onProceed) {
+  // Quick local viability check (fast, no API needed for basic gate)
+  const questions = tender.questions || [];
+  const pricingLines = tender.pricingLines || [];
+  const deadline = tender.deadline;
+  const days = getDaysRemaining(deadline);
+
+  // Check certs from vault
+  let vaultFacts = '';
+  try { vaultFacts = localStorage.getItem('skai-vault-facts') || ''; } catch(e) {}
+  const hasCerts = vaultFacts.length > 100;
+
+  // Quick score
+  let score = 5;
+  if (questions.length > 0 && questions.length < 30) score++;
+  if (pricingLines.length > 0) score++;
+  if (days !== null && days >= 7) score++;
+  if (days !== null && days >= 14) score++;
+  if (hasCerts) score++;
+  if (questions.length > 40) score--;
+  if (days !== null && days < 3) score--;
+  score = Math.max(1, Math.min(10, score));
+
+  const band = score >= 8 ? { label: 'GO FOR IT', colour: '#10b981', bg: 'rgba(16,185,129,0.1)', border: 'rgba(16,185,129,0.3)' }
+             : score >= 5 ? { label: 'BORDERLINE', colour: '#f59e0b', bg: 'rgba(245,158,11,0.1)', border: 'rgba(245,158,11,0.3)' }
+             : { label: 'THINK CAREFULLY', colour: '#ef4444', bg: 'rgba(239,68,68,0.1)', border: 'rgba(239,68,68,0.3)' };
+
+  const checks = [];
+  if (hasCerts) checks.push({ ok: true, text: 'Vault contains certifications — good basis for PQQ questions' });
+  else checks.push({ ok: false, text: 'No certifications in vault yet — add them for better answers' });
+  if (questions.length > 0) checks.push({ ok: true, text: `${questions.length} question${questions.length!==1?'s':''} extracted` });
+  if (pricingLines.length > 0) checks.push({ ok: true, text: `${pricingLines.length} pricing line${pricingLines.length!==1?'s':''} identified — pricing tab ready` });
+  if (days !== null && days >= 7) checks.push({ ok: true, text: `${days} days to deadline — achievable` });
+  if (days !== null && days < 7 && days >= 0) checks.push({ ok: false, text: `Only ${days} day${days!==1?'s':''} to deadline — tight` });
+  if (days !== null && days < 0) checks.push({ ok: false, text: 'Deadline has passed' });
+
+  let modal = document.getElementById('tw-viability-gate');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'tw-viability-gate';
+    modal.className = 'modal-overlay';
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML = `<div class="modal" style="max-width:480px;text-align:center;">
+    <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">✦ SKAI Viability Assessment</div>
+    <div style="font-size:16px;font-weight:800;color:var(--text);margin-bottom:6px;">${tender.name || 'New Tender'}</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:20px;">${tender.customer || ''} · ${tender.type || 'Auto-detected'}</div>
+
+    <div style="background:${band.bg};border:1px solid ${band.border};border-radius:12px;padding:20px;margin-bottom:18px;display:inline-block;min-width:200px;">
+      <div style="font-size:32px;font-weight:900;color:${band.colour};line-height:1;">${score}<span style="font-size:16px;">/10</span></div>
+      <div style="font-size:14px;font-weight:800;color:${band.colour};margin-top:4px;">${band.label}</div>
+    </div>
+
+    <div style="text-align:left;margin-bottom:20px;display:flex;flex-direction:column;gap:6px;">
+      ${checks.map(c => `<div style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:${c.ok?'var(--text)':'var(--muted)'};">
+        <span style="flex-shrink:0;margin-top:1px;">${c.ok?'✓':'⚠'}</span>
+        <span>${c.text}</span>
+      </div>`).join('')}
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:center;">
+      <button onclick="twViabilityProceed()" style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:white;border:none;border-radius:10px;padding:12px 28px;font-size:14px;font-weight:800;cursor:pointer;">✦ Open Workspace</button>
+      <button onclick="document.getElementById('tw-viability-gate').classList.remove('open');document.getElementById('modal-new-tender')?.classList.remove('open');" style="background:var(--glass);border:1px solid var(--border);border-radius:10px;padding:12px 20px;font-size:13px;color:var(--muted);cursor:pointer;">Park for now</button>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:10px;">Viability score is indicative — SKAI can run a deeper assessment once you're in the workspace</div>
+  </div>`;
+
+  // Store the proceed callback
+  window._twViabilityCallback = function() {
+    modal.classList.remove('open');
+    onProceed();
+  };
+
+  modal.classList.add('open');
+}
+
+window.twViabilityProceed = function() {
+  if (typeof window._twViabilityCallback === 'function') window._twViabilityCallback();
+};
+
+// ── UPLOAD FIX — unified file reader ──────────────────────────
+// Replace handleWSFileUpload with proven wizard-engine reading logic
+window.handleWSFileUpload = function(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  const badge = document.getElementById('wiz-file-badge') || createUploadFeedback();
+
+  function showFeedback(msg) {
+    if (typeof showVaultToast === 'function') showVaultToast(msg);
+  }
+
+  if (ext === 'docx' || ext === 'doc') {
+    showFeedback('⏳ Reading ' + file.name + '...');
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        const arr = new Uint8Array(e.target.result);
+        const str = new TextDecoder('utf-8', {fatal:false}).decode(arr);
+        const tags = str.match(/<w:t[^>]*>([^<]+)<\/w:t>/g) || [];
+        let text = '';
+        if (tags.length > 5) {
+          text = tags.map(t => t.replace(/<[^>]+>/g,'')).join(' ').replace(/\s+/g,' ').trim();
+        } else {
+          const readable = [];
+          str.split('\n').forEach(line => {
+            const clean = line.replace(/[\x00-\x1F\x7F-\xFF]/g,' ').replace(/\s+/g,' ').trim();
+            if (clean.length > 8) readable.push(clean);
+          });
+          text = readable.join('\n');
+        }
+        if (text.length < 50) { showFeedback('⚠ Could not read ' + file.name + ' — try pasting instead'); return; }
+        window._wsUploadedContent = text;
+        window._wsUploadedFileName = file.name;
+        window._tenderRawText = text;
+        showFeedback('✓ ' + file.name + ' loaded — click ✦ Answer All with SKAI');
+        autoTriggerFromUpload(text, file.name);
+      } catch(err) { showFeedback('⚠ Could not read ' + file.name + ' — try pasting instead'); }
+    };
+    reader.readAsArrayBuffer(file);
+
+  } else if (ext === 'pdf') {
+    showFeedback('⏳ Reading ' + file.name + '...');
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        const arr = new Uint8Array(e.target.result);
+        const str = new TextDecoder('latin1').decode(arr);
+        const blocks = str.match(/BT[\s\S]{0,2000}?ET/g) || [];
+        let text = '';
+        blocks.forEach(blk => {
+          const parts = blk.match(/\(([^)]+)\)/g) || [];
+          parts.forEach(p => { text += p.slice(1,-1) + ' '; });
+        });
+        text = text.replace(/\s+/g,' ').trim();
+        if (text.length < 50) {
+          const lines = str.split('\n');
+          const readable = [];
+          lines.forEach(line => {
+            const cl = line.replace(/[^\x20-\x7E]/g,' ').replace(/\s+/g,' ').trim();
+            if (cl.length > 8 && /[a-zA-Z]{3,}/.test(cl)) readable.push(cl);
+          });
+          text = readable.join('\n');
+        }
+        if (text.length < 50) { showFeedback('⚠ This PDF may be image-based — try pasting the text'); return; }
+        window._wsUploadedContent = text;
+        window._wsUploadedFileName = file.name;
+        window._tenderRawText = text;
+        showFeedback('✓ ' + file.name + ' loaded — click ✦ Answer All with SKAI');
+        autoTriggerFromUpload(text, file.name);
+      } catch(err) { showFeedback('⚠ Could not read ' + file.name + ' — try pasting instead'); }
+    };
+    reader.readAsArrayBuffer(file);
+
+  } else {
+    // TXT, CSV
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const text = e.target.result;
+      if (!text || text.length < 10) { showFeedback('⚠ File appears empty'); return; }
+      window._wsUploadedContent = text;
+      window._wsUploadedFileName = file.name;
+      window._tenderRawText = text;
+      showFeedback('✓ ' + file.name + ' loaded — click ✦ Answer All with SKAI');
+      autoTriggerFromUpload(text, file.name);
+    };
+    reader.readAsText(file);
+  }
+};
+
+// When a file is uploaded to an existing workspace, auto-run question extraction
+async function autoTriggerFromUpload(content, filename) {
+  if (!content || content.length < 50) return;
+  const tenderId = window._activeTenderId;
+  if (!tenderId) return;
+
+  // Show extracting feedback
+  if (typeof showVaultToast === 'function') showVaultToast('✦ SKAI extracting questions...');
+
+  const ANTHROPIC_API_URL = window.ANTHROPIC_API_URL || 'https://southkey-ai.sarahbarkeris.workers.dev';
+
+  try {
+    const extractPrompt = `You are reading a tender document. Extract ALL questions that need answers.
+Return ONLY valid JSON — no other text:
+{
+  "tender_type": "PQQ or ITT or RFQ etc",
+  "customer": "organisation name",
+  "questions": ["question 1", "question 2"],
+  "pricing_lines": ["product line 1"]
+}
+Document:
+${content.substring(0, 8000)}`;
+
+    const res = await fetch(ANTHROPIC_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 2000, messages: [{ role: 'user', content: extractPrompt }] })
+    });
+
+    if (!res.ok) throw new Error('API error');
+    const data = await res.json();
+    const raw = data.content?.map(c => c.text||'').join('').trim() || '';
+    const clean = raw.replace(/```json|```/g,'').trim();
+    let parsed = { questions: [], pricing_lines: [], tender_type: '', customer: '' };
+
+    try { parsed = JSON.parse(clean); } catch(e) {
+      // Fallback: extract lines
+      parsed.questions = content.split('\n').filter(l => l.trim().length > 15 && /\?|describe|explain|provide|list|outline/i.test(l)).slice(0, 40);
+    }
+
+    const questions = parsed.questions || [];
+    if (!questions.length) { if (typeof showVaultToast === 'function') showVaultToast('⚠ No questions found — paste them manually'); return; }
+
+    // Update tender with questions
+    let tenders = [];
+    try { tenders = JSON.parse(localStorage.getItem(TENDERS_KEY) || '[]'); } catch(e) {}
+    const idx = tenders.findIndex(t => t.id === tenderId);
+    if (idx > -1) {
+      if (!tenders[idx].questions?.length) {
+        tenders[idx].questions = questions;
+        tenders[idx].answers = questions.map(() => '');
+        tenders[idx].statuses = questions.map(() => 'Draft');
+        if (parsed.customer && !tenders[idx].customer) tenders[idx].customer = parsed.customer;
+        if (parsed.tender_type && !tenders[idx].type) tenders[idx].type = parsed.tender_type;
+        localStorage.setItem(TENDERS_KEY, JSON.stringify(tenders));
+      }
+    }
+
+    // Render questions
+    if (typeof restoreQuestionsToWorkspace === 'function') {
+      const t = tenders[idx] || {};
+      restoreQuestionsToWorkspace(t);
+    }
+
+    if (typeof showVaultToast === 'function') showVaultToast(`✓ ${questions.length} questions extracted — click ✦ Answer All`);
+
+    // Show the generate button
+    const genBtn = document.getElementById('generate-all-btn');
+    if (genBtn) genBtn.style.display = 'inline-flex';
+
+    setTimeout(() => {
+      injectChaseButtons();
+      if (tenderId) {
+        let t2 = [];
+        try { t2 = JSON.parse(localStorage.getItem(TENDERS_KEY) || '[]'); } catch(e) {}
+        const found = t2.find(x => x.id === tenderId);
+        if (found) injectStatusMap(tenderId, found);
+      }
+    }, 300);
+
+  } catch(err) {
+    if (typeof showVaultToast === 'function') showVaultToast('⚠ Could not extract — paste questions manually');
+  }
+}
+
+function createUploadFeedback() {
+  const div = document.createElement('div');
+  div.id = 'tw-upload-feedback';
+  return div;
+}
+
+// ── DEADLINE on sidebar save — patch saveTenderWorkspace ─────
+const _origSaveWorkspace = window.saveTenderWorkspace;
+if (typeof _origSaveWorkspace === 'function') {
+  window.saveTenderWorkspace = function() {
+    _origSaveWorkspace();
+    // After save, refresh deadline chips and banner
+    setTimeout(() => {
+      if (typeof renderTenderSidebar === 'function') renderTenderSidebar();
+      refreshDeadlineBanner();
+      const tenderId = window._activeTenderId;
+      if (tenderId) {
+        let tenders = [];
+        try { tenders = JSON.parse(localStorage.getItem(TENDERS_KEY) || '[]'); } catch(e) {}
+        const t = tenders.find(x => x.id === tenderId);
+        if (t) injectStatusMap(tenderId, t);
+      }
+    }, 900);
+  };
+}
+
+// ── INIT ──────────────────────────────────────────────────────
+function init() {
+  getOrCreateTeam();
+  injectOutstandingTab();
+  injectUserBar();
+  renderUserBar();
+  renderOutstandingBadge();
+  injectDeadlineBanner();
+  refreshDeadlineBanner();
+
+  // Periodic refresh every 60s
+  setInterval(() => {
+    renderOutstandingBadge();
+    refreshDeadlineBanner();
+    updateChaseStatuses();
+  }, 60000);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  setTimeout(init, 800);
+}
+
+// Also re-run on section switches
+const _origShowSection = window.showSection;
+if (typeof _origShowSection === 'function') {
+  window.showSection = function(id) {
+    _origShowSection(id);
+    setTimeout(() => {
+      renderOutstandingBadge();
+      if (id === 'home') refreshDeadlineBanner();
+      if (id === 'builder') {
+        const tenderId = window._activeTenderId;
+        if (tenderId) {
+          let tenders = [];
+          try { tenders = JSON.parse(localStorage.getItem(TENDERS_KEY) || '[]'); } catch(e) {}
+          const t = tenders.find(x => x.id === tenderId);
+          if (t) {
+            injectStatusMap(tenderId, t);
+            setTimeout(injectChaseButtons, 400);
+          }
+        }
+      }
+    }, 200);
+  };
+}
+
+})(); // end IIFE
+
+</script>
 </body>
 </html>
