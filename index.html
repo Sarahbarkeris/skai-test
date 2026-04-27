@@ -883,7 +883,8 @@
                   <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px;">Upload Tender Document</div>
                   <div style="font-size:11px;color:var(--muted);">CSV, TXT, or paste from portal<br>SKAI extracts all questions automatically</div>
                 </div>
-                <input type="file" id="ws-csv-upload" accept=".csv,.txt,.pdf,.doc,.docx" style="display:none;" onchange="handleWSFileUpload(this)">
+                <input type="file" id="ws-csv-upload" accept=".csv,.txt,.pdf,.doc,.docx,.xlsx" style="display:none;" onchange="handleWSFileUpload(this)">
+                <div id="ws-upload-status" style="display:none;margin-top:8px;font-size:12px;color:#a78bfa;text-align:center;padding:6px;background:rgba(124,58,237,0.1);border-radius:6px;"></div>
               </label>
 
               <!-- Paste -->
@@ -6971,33 +6972,7 @@ function loadQuestionsFromPaste() {
   document.getElementById('ws-question-paste-text').value = '';
 }
 
-function handleWSFileUpload(input) {
-  const file = input.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const text = e.target.result;
-    // Extract question-like lines
-    const lines = text.split('\n')
-      .map(l => l.replace(/^\s*\d+[\.\)]\s*/, '').replace(/,+$/, '').trim())
-      .filter(l => l.length > 8);
-    if (!lines.length) { showVaultToast('No content found in file'); return; }
-    renderQuestionsToWorkspace(lines);
-    showVaultToast(`${lines.length} questions loaded from ${file.name}`);
-  };
-  if (['doc','docx'].includes(file.name.split('.').pop().toLowerCase())) {
-    var _r2 = new FileReader();
-    _r2.onload = function(ev) {
-      var arr = new Uint8Array(ev.target.result);
-      var str = new TextDecoder('utf-8',{fatal:false}).decode(arr);
-      var m = Array.from(str.matchAll ? str.matchAll(/<w:t[^>]*>([^<]+)<\/w:t>/g) : []).map(function(x){return x[1];});
-      var txt = m.length>5 ? m.join(' ') : str.replace(/[^\x20-\x7E\n]/g,' ').replace(/\s{3,}/g,'\n');
-      reader.onload({target:{result:txt}});
-    };
-    _r2.readAsArrayBuffer(file);
-  } else {
-    reader.readAsText(file);
-  }
-}
+/* handleWSFileUpload v1 removed - see v2 below */
 
 function renderQuestionsToWorkspace(questions) {
   const container = document.getElementById('questions-container');
@@ -7045,34 +7020,58 @@ function switchWsTab(tab) {
 }
 
 function handleWSFileUpload(input) {
-  const file = input.files[0]; if (!file) return;
-  const ext = file.name.split('.').pop().toLowerCase();
-  showVaultToast('Reading ' + file.name + '...');
+  var file = input.files[0]; if (!file) return;
+  var ext = file.name.split('.').pop().toLowerCase();
+
+  // Show immediate feedback
+  var statusDiv = document.getElementById('ws-upload-status');
+  function setStatus(msg) {
+    showVaultToast(msg);
+    if (statusDiv) { statusDiv.style.display='block'; statusDiv.textContent=msg; }
+  }
+  setStatus('Reading ' + file.name + '...');
+
   function onText(text) {
-    if (!text || text.trim().length < 20) { showVaultToast('Could not read file - try pasting instead'); return; }
+    if (!text || text.trim().length < 20) {
+      setStatus('Could not read file - try pasting the text instead');
+      return;
+    }
+    setStatus('SKAI extracting questions...');
     skaiExtractAndLoad(text, file.name);
   }
+
   if (ext === 'docx' || ext === 'doc') {
-    const r = new FileReader();
+    var r = new FileReader();
+    r.onerror = function() { setStatus('File read error - try pasting instead'); };
     r.onload = function(ev) {
       try {
-        const arr = new Uint8Array(ev.target.result);
-        const str = new TextDecoder('utf-8',{fatal:false}).decode(arr);
-        const tags = str.match(/<w:t[^>]*>([^<]+)<\/w:t>/g) || [];
-        const text = tags.length > 5
-          ? tags.map(function(t){return t.replace(/<[^>]+>/g,'');}).join(' ').replace(/\s+/g,' ').trim()
-          : str.replace(/[\x00-\x1F\x7F-\xFF]/g,' ').replace(/\s{3,}/g,' ').trim();
+        var arr = new Uint8Array(ev.target.result);
+        var str = new TextDecoder('utf-8', {fatal:false}).decode(arr);
+        var tags = str.match(/<w:t[^>]*>([^<]+)<\/w:t>/g) || [];
+        var text;
+        if (tags.length > 5) {
+          text = tags.map(function(t){ return t.replace(/<[^>]+>/g,''); }).join(' ').replace(/\s+/g,' ').trim();
+        } else {
+          text = str.replace(/[ --ÿ]/g,' ').replace(/\s{3,}/g,' ').trim();
+        }
+        if (!text || text.trim().length < 20) {
+          setStatus('Word file appears empty or protected - try pasting the text');
+          return;
+        }
         onText(text);
-      } catch(e) { showVaultToast('Could not read Word file - try pasting instead'); }
+      } catch(e) {
+        setStatus('Could not read Word file - try pasting instead');
+      }
     };
     r.readAsArrayBuffer(file);
   } else if (ext === 'pdf') {
-    const r = new FileReader();
-    r.onload = function(ev) {
+    var r2 = new FileReader();
+    r2.onerror = function() { setStatus('File read error - try pasting instead'); };
+    r2.onload = function(ev) {
       try {
-        const arr = new Uint8Array(ev.target.result);
-        const str = new TextDecoder('latin1').decode(arr);
-        const blocks = str.match(/BT[\s\S]{0,2000}?ET/g) || [];
+        var arr = new Uint8Array(ev.target.result);
+        var str = new TextDecoder('latin1').decode(arr);
+        var blocks = str.match(/BT[\s\S]{0,2000}?ET/g) || [];
         var text = '';
         blocks.forEach(function(blk) {
           var parts = blk.match(/\(([^)]+)\)/g) || [];
@@ -7080,16 +7079,21 @@ function handleWSFileUpload(input) {
         });
         text = text.replace(/\s+/g,' ').trim();
         if (text.length < 50) {
-          text = str.replace(/[^\x20-\x7E\n]/g,' ').split('\n').filter(function(l){return l.trim().length>8;}).join(' ');
+          text = str.replace(/[^ -~
+]/g,' ').split('
+').filter(function(l){return l.trim().length>8;}).join(' ');
         }
         onText(text);
-      } catch(e) { showVaultToast('Could not read PDF - try pasting instead'); }
+      } catch(e) {
+        setStatus('Could not read PDF - try pasting instead');
+      }
     };
-    r.readAsArrayBuffer(file);
+    r2.readAsArrayBuffer(file);
   } else {
-    const r = new FileReader();
-    r.onload = function(e) { onText(e.target.result); };
-    r.readAsText(file);
+    var r3 = new FileReader();
+    r3.onerror = function() { setStatus('File read error - try pasting instead'); };
+    r3.onload = function(e) { onText(e.target.result); };
+    r3.readAsText(file);
   }
 }
 
