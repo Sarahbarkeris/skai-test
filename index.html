@@ -6924,8 +6924,7 @@ function quickStartFromFile(input) {
         const tags = str.match(/<w:t[^>]*>([^<]+)<\/w:t>/g) || [];
         let text = tags.length > 5
           ? tags.map(t => t.replace(/<[^>]+>/g,'')).join(' ').replace(/\s+/g,' ').trim()
-          : str.split('
-').map(l=>l.replace(/[ --ÿ]/g,' ').trim()).filter(l=>l.length>8).join('
+          : str.split('\n').map(l=>l.replace(/[ --ÿ]/g,' ').trim()).filter(l=>l.length>8).join('
 ');
         gotText(text);
       } catch(e) { showVaultToast('⚠ Could not read Word file — paste the text instead'); }
@@ -6941,9 +6940,7 @@ function quickStartFromFile(input) {
         let text = '';
         blocks.forEach(blk => { (blk.match(/\(([^)]+)\)/g)||[]).forEach(p => { text += p.slice(1,-1)+' '; }); });
         text = text.replace(/\s+/g,' ').trim();
-        if (text.length < 50) text = str.split('
-').filter(l=>/[a-zA-Z]{4,}/.test(l)).map(l=>l.replace(/[^ -~]/g,'').trim()).filter(l=>l.length>8).join('
-');
+        if (text.length < 50) text = str.split('\n').filter(l=>/[a-zA-Z]{4,}/.test(l)).map(l=>l.replace(/[^ -~]/g,'').trim()).filter(l=>l.length>8).join('\n');
         gotText(text);
       } catch(e) { showVaultToast('⚠ Could not read PDF — paste the text instead'); }
     };
@@ -7100,8 +7097,7 @@ function handleWSFileUpload(input) {
         text = text.replace(/\s+/g, ' ').trim();
         if (text.length < 50) {
           // fallback
-          text = str.split('\n').filter(l => /[a-zA-Z]{4,}/.test(l) && l.replace(/[^\x20-\x7E]/g,'').trim().length > 8)
-                    .map(l => l.replace(/[^\x20-\x7E]/g,'').trim()).join('\n');
+          text = str.split('\n').filter(l => /[a-zA-Z]{4,}/.test(l) && l.replace(/[^\x20-\x7E]/g,'').trim().length > 8).map(l => l.replace(/[^\x20-\x7E]/g,'').trim()).join('\n');
         }
         processText(text);
       } catch(e) { showVaultToast('⚠ Could not read PDF — try pasting instead'); }
